@@ -1,0 +1,26 @@
+name = "amigo-worker"
+main = "src/index.ts"
+compatibility_date = "2024-05-02"
+
+[triggers]
+crons = ["0 * * * *"] # Every hour
+
+[[kv_namespaces]]
+binding = "amigo"
+id = "972c4dcd683e4d5696edddb7d0253423"
+
+
+
+[vars]
+# You can set non-sensitive variables here.
+# Target Slovak Timezone
+TIMEZONE = "Europe/Bratislava"
+# Active hours limit: only send messages during these hours (local time)
+START_HOUR = "9"
+END_HOUR = "21"
+
+[[rules]]
+globs = ["**/*.nano"]
+type = "Text"
+fallthrough = true
+

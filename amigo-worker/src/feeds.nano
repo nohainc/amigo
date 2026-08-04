@@ -1,0 +1,11 @@
+:
+    ..
+        link https://www.aktuality.sk/rss/
+        topic news
+        language sk
+        active true
+    ..
+        link https://slovakia.travel/en/rss
+        topic travel
+        language en
+        active true
