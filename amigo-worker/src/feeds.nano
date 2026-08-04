@@ -69,3 +69,13 @@
         topic events
         language sk
         active true
+    ..
+        link https://www.ukrinform.ua/rss/block-lastnews
+        topic ukraine
+        language uk
+        active true
+    ..
+        link https://www.eurointegration.com.ua/rss/view_mainnews/
+        topic ukraine
+        language uk
+        active true
