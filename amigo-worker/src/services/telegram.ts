@@ -127,10 +127,20 @@ export class TelegramService {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
         },
       });
-      const contentType = response.headers.get("content-type") || "";
-      return contentType.includes("text/html") || contentType.includes("text/xhtml");
-    } catch {
-      return false;
+      if (response.ok) {
+        const contentType = response.headers.get("content-type") || "";
+        return contentType.includes("text/html") || contentType.includes("text/xhtml");
+      }
+    } catch (err) {
+      console.warn(`isWebsite HEAD request failed for ${url}:`, err);
     }
+
+    // Fallback: Check URL structure. If it has no typical binary extension, assume it is a webpage.
+    const lowercaseUrl = url.toLowerCase();
+    const binaryExtensions = [
+      ".jpg", ".jpeg", ".png", ".gif", ".pdf", ".zip", ".rar", ".mp3", ".mp4", 
+      ".avi", ".mov", ".docx", ".xlsx", ".pptx", ".epub", ".dmg", ".exe"
+    ];
+    return !binaryExtensions.some(ext => lowercaseUrl.endsWith(ext) || lowercaseUrl.includes(ext + "?"));
   }
 }
