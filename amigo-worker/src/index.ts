@@ -144,8 +144,8 @@ async function runBot(env: Env): Promise<void> {
         const weather = await fetchBratislavaTomorrowWeather();
         const weatherMessage = formatWeatherMessage(weather);
 
-        // Send to events topic (thread ID 12)
-        await telegram.sendRawMessage("events", weatherMessage);
+        // Send to weather topic (thread ID 22)
+        await telegram.sendRawMessage("weather", weatherMessage);
 
         // Mark as sent in KV
         await env.amigo.put(weatherSentKey, "sent");

@@ -44,7 +44,7 @@
             career
     ..
         id 7
-        name_uk Житло
+        name_uk Житlo
         name_en Housing
         tags:
             housing
@@ -123,3 +123,11 @@
             ukraine
             news-ukraine
             war-updates
+    ..
+        id 22
+        name_uk Погода
+        name_en Weather
+        tags:
+            weather
+            forecast
+            meteo
