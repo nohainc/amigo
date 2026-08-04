@@ -23,6 +23,7 @@ export class TelegramService {
       travel: 11,
       events: 12,
       ukraine: 301,
+      health: 8,
       // User can add more topic -> thread ID mapping here
     };
   }

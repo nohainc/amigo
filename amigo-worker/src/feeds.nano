@@ -1,16 +1,61 @@
 :
     ..
-        link https://www.aktuality.sk/rss/
+        link https://spravy.stvr.sk/feed/
         topic news
         language sk
         active true
     ..
-        link https://sita.sk/feed/
+        link https://www.aktuality.sk/rss/spravy/
         topic news
         language sk
         active true
     ..
-        link https://www.dobrenoviny.sk/rss
+        link https://www.teraz.sk/rss/slovensko.rss
+        topic news
+        language sk
+        active true
+    ..
+        link https://dennikn.sk/feed/
+        topic news
+        language sk
+        active true
+    ..
+        link https://www.pravda.sk/spravy/rss/xml
+        topic news
+        language sk
+        active true
+    ..
+        link https://www1.pluska.sk/rss.xml
+        topic news
+        language sk
+        active true
+    ..
+        link https://www.startitup.sk/feed/
+        topic news
+        language sk
+        active true
+    ..
+        link https://spectator.sme.sk/rss-title
+        topic news
+        language en
+        active true
+    ..
+        link https://www.slovensko.sk/sk/rss/oznamy
+        topic immigration
+        language sk
+        active true
+    ..
+        link https://www.vlada.gov.sk/rss/
+        topic immigration
+        language sk
+        active true
+    ..
+        link https://www.sukl.sk/hlavna-stranka/slovenska-verzia/rss?days=365
+        topic health
+        language sk
+        active true
+    ..
+        link https://zive.aktuality.sk/rss/najnovsie/
         topic news
         language sk
         active true
