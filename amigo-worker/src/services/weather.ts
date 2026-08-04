@@ -100,11 +100,23 @@ export function getWeatherEmoji(code: number): string {
 export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]): string {
   if (forecasts.length === 0) return "";
 
-  // Get tomorrow's date formatted (using first forecast)
-  const parts = forecasts[0].date.split("-");
-  const formattedDate = parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : forecasts[0].date;
+  const ukrainianMonths = [
+    "січня", "лютого", "березня", "квітня", "травня", "червня",
+    "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"
+  ];
 
-  let msg = `✨ <b>Прогноз погоди на ${formattedDate}</b> 🌤️\n\n`;
+  // Get tomorrow's date formatted as "Day Month" in Ukrainian
+  const parts = forecasts[0].date.split("-");
+  let dateHeader = forecasts[0].date;
+  if (parts.length === 3) {
+    const day = parseInt(parts[2], 10);
+    const monthIdx = parseInt(parts[1], 10) - 1;
+    if (monthIdx >= 0 && monthIdx < 12) {
+      dateHeader = `${day} ${ukrainianMonths[monthIdx]}`;
+    }
+  }
+
+  let msg = `📅 <b><u>${dateHeader}</u></b> 🌤️\n\n`;
 
   // Group by country
   const groups: Record<string, { flag: string; list: CityWeatherForecast[] }> = {};
