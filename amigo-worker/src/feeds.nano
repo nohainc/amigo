@@ -59,3 +59,13 @@
         topic news
         language sk
         active true
+    ..
+        link https://www.visitbratislava.com/event-categories/top-events/feed/
+        topic events
+        language en
+        active true
+    ..
+        link https://www.ukc.sk/feed/
+        topic events
+        language sk
+        active true
