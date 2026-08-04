@@ -119,11 +119,7 @@ export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]):
     msg += `${group.flag} <b>${country}:</b>\n`;
     for (const f of group.list) {
       const emoji = getWeatherEmoji(f.weatherCode);
-      msg += `• <b>${f.city.nameUk}:</b> 🌡️ <code>${Math.round(f.tempMin)}°C</code>..<code>${Math.round(
-        f.tempMax
-      )}°C</code> | ${emoji} | 🌧️ <code>${f.precipProb}%</code> | 💨 <code>${Math.round(
-        f.windSpeedMax
-      )} км/г</code>\n`;
+      msg += `<b>${f.city.nameUk}:</b> 🌡️ <code>${Math.round(f.tempMin)}°C</code>..<code>${Math.round(f.tempMax)}°C</code>\n${emoji} | 🌧️ <code>${f.precipProb}%</code> | 💨 <code>${Math.round(f.windSpeedMax)} км/г</code>\n`;
     }
     msg += `\n`;
   }
