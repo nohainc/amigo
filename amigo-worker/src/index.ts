@@ -3,6 +3,7 @@ import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { StorageService } from "./services/storage";
 import { TelegramService } from "./services/telegram";
+import { fetchBratislavaTomorrowWeather, formatWeatherMessage } from "./services/weather";
 
 export interface Env {
   amigo: KVNamespace;
@@ -108,4 +109,41 @@ async function runBot(env: Env): Promise<void> {
       console.error(`Error processing feed ${feed.link}:`, error);
     }
   }
+
+  // Evening Weather Forecast (runs at 8 PM / 20:00 local time)
+  if (currentLocalHour === 20) {
+    try {
+      const dateFormatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      const parts = dateFormatter.formatToParts(new Date());
+      const year = parts.find((p) => p.type === "year")?.value;
+      const month = parts.find((p) => p.type === "month")?.value;
+      const day = parts.find((p) => p.type === "day")?.value;
+      const todayDateStr = `${year}-${month}-${day}`;
+
+      // Check if we already sent weather forecast today (during the 20:00 hour)
+      const weatherSentKey = `weather_sent:${todayDateStr}`;
+      const alreadySentWeather = await env.amigo.get(weatherSentKey);
+
+      if (!alreadySentWeather) {
+        console.log(`Sending evening weather forecast for tomorrow...`);
+        const weather = await fetchBratislavaTomorrowWeather();
+        const weatherMessage = formatWeatherMessage(weather);
+
+        // Send to events topic (thread ID 12)
+        await telegram.sendRawMessage("events", weatherMessage);
+
+        // Mark as sent in KV
+        await env.amigo.put(weatherSentKey, "sent");
+        console.log("Tomorrow's weather forecast successfully posted and logged in KV");
+      }
+    } catch (weatherErr) {
+      console.error("Error executing evening weather forecast:", weatherErr);
+    }
+  }
 }
+

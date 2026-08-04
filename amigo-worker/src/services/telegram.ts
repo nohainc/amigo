@@ -53,6 +53,31 @@ export class TelegramService {
       throw new Error(`Telegram send failed (${response.status}): ${errorText}`);
     }
   }
+  /**
+   * Sends a raw HTML formatted string to the Telegram chat thread.
+   */
+  async sendRawMessage(topic: string, text: string): Promise<void> {
+    const threadId = this.topicThreadMap[topic] || 0;
+    const url = `https://api.telegram.org/bot${this.token}/sendMessage`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        chat_id: this.chatId,
+        message_thread_id: threadId,
+        parse_mode: "HTML",
+        text: text,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Telegram send raw failed (${response.status}): ${errorText}`);
+    }
+  }
 
   private async formatMessage(item: FeedItem, lang: string): Promise<string> {
     const isWeb = await this.isWebsite(item.link);
