@@ -1,4 +1,27 @@
-export interface WeatherForecast {
+export interface CityConfig {
+  nameUk: string;
+  lat: number;
+  lon: number;
+  countryUk: string;
+  flag: string;
+}
+
+export const CITIES: CityConfig[] = [
+  // Slovakia
+  { nameUk: "Братислава", lat: 48.1482, lon: 17.1067, countryUk: "Словаччина", flag: "🇸🇰" },
+  { nameUk: "Кошице", lat: 48.7164, lon: 21.2611, countryUk: "Словаччина", flag: "🇸🇰" },
+  { nameUk: "Прешов", lat: 48.9984, lon: 21.2408, countryUk: "Словаччина", flag: "🇸🇰" },
+  { nameUk: "Жиліна", lat: 49.2232, lon: 18.7408, countryUk: "Словаччина", flag: "🇸🇰" },
+  { nameUk: "Банська Бистриця", lat: 48.7350, lon: 19.1453, countryUk: "Словаччина", flag: "🇸🇰" },
+  { nameUk: "Трнава", lat: 48.3775, lon: 17.5883, countryUk: "Словаччина", flag: "🇸🇰" },
+  // Ukraine
+  { nameUk: "Київ", lat: 50.4501, lon: 30.5234, countryUk: "Україна", flag: "🇺🇦" },
+  // Austria
+  { nameUk: "Відень", lat: 48.2082, lon: 16.3738, countryUk: "Австрія", flag: "🇦🇹" },
+];
+
+export interface CityWeatherForecast {
+  city: CityConfig;
   date: string;
   tempMax: number;
   tempMin: number;
@@ -7,22 +30,22 @@ export interface WeatherForecast {
   weatherCode: number;
 }
 
-export async function fetchBratislavaTomorrowWeather(): Promise<WeatherForecast> {
-  const url =
-    "https://api.open-meteo.com/v1/forecast?latitude=48.1482&longitude=17.1067&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&timezone=Europe%2FBratislava";
+export async function fetchCityTomorrowWeather(city: CityConfig): Promise<CityWeatherForecast> {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&timezone=auto`;
 
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Open-Meteo API failed: ${response.statusText}`);
+    throw new Error(`Open-Meteo API failed for ${city.nameUk}: ${response.statusText}`);
   }
 
   const data = (await response.json()) as any;
   if (!data.daily || !data.daily.time || data.daily.time.length < 2) {
-    throw new Error("Invalid response structure from Open-Meteo API");
+    throw new Error(`Invalid response structure from Open-Meteo API for ${city.nameUk}`);
   }
 
   // Index 1 corresponds to tomorrow's daily data
   return {
+    city,
     date: data.daily.time[1],
     tempMax: data.daily.temperature_2m_max[1],
     tempMin: data.daily.temperature_2m_min[1],
@@ -32,61 +55,79 @@ export async function fetchBratislavaTomorrowWeather(): Promise<WeatherForecast>
   };
 }
 
-export function getWeatherDescription(code: number): { text: string; emoji: string } {
-  // WMO Weather interpretation codes (GY)
+export async function fetchAllCitiesWeather(): Promise<CityWeatherForecast[]> {
+  const promises = CITIES.map((city) => fetchCityTomorrowWeather(city));
+  return Promise.all(promises);
+}
+
+export function getWeatherEmoji(code: number): string {
+  // Simple WMO code to emoji converter
   switch (code) {
     case 0:
-      return { text: "Ясно / Безхмарно", emoji: "☀️" };
+      return "☀️";
     case 1:
-      return { text: "Переважно ясно", emoji: "🌤️" };
+      return "🌤️";
     case 2:
-      return { text: "Мінлива хмарність", emoji: "⛅" };
+      return "⛅";
     case 3:
-      return { text: "Хмарно", emoji: "☁️" };
+      return "☁️";
     case 45:
     case 48:
-      return { text: "Туман", emoji: "🌫️" };
+      return "🌫️";
     case 51:
     case 53:
-      return { text: "Слабкий мряка", emoji: "🌧️" };
     case 55:
-      return { text: "Інтенсивна мряка", emoji: "🌧️" };
     case 61:
-      return { text: "Невеликий дощ", emoji: "🌧️" };
     case 63:
-      return { text: "Помірний дощ", emoji: "🌧️" };
     case 65:
-      return { text: "Сильний дощ", emoji: "🌊" };
-    case 71:
-    case 73:
-    case 75:
-      return { text: "Снігопад", emoji: "❄️" };
     case 80:
     case 81:
     case 82:
-      return { text: "Злива", emoji: "🌧️" };
+      return "🌧️";
+    case 71:
+    case 73:
+    case 75:
+      return "❄️";
     case 95:
     case 96:
     case 99:
-      return { text: "Гроза", emoji: "⛈️" };
+      return "⛈️";
     default:
-      return { text: "Мінливі погодні умови", emoji: "🌈" };
+      return "🌈";
   }
 }
 
-export function formatWeatherMessage(w: WeatherForecast): string {
-  const { text, emoji } = getWeatherDescription(w.weatherCode);
-  
-  // Format date from YYYY-MM-DD to DD.MM.YYYY
-  const parts = w.date.split("-");
-  const formattedDate = parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : w.date;
+export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]): string {
+  if (forecasts.length === 0) return "";
 
-  return `✨ <b>Прогноз погоди у Братиславі на завтра (${formattedDate})</b> ${emoji}
+  // Get tomorrow's date formatted (using first forecast)
+  const parts = forecasts[0].date.split("-");
+  const formattedDate = parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : forecasts[0].date;
 
-🌡️ <b>Температура:</b> від <code>${Math.round(w.tempMin)}°C</code> до <code>${Math.round(w.tempMax)}°C</code>
-📝 <b>Стан неба:</b> ${text}
-🌧️ <b>Ймовірність опадів:</b> <code>${w.precipProb}%</code>
-💨 <b>Макс. швидкість вітру:</b> <code>${w.windSpeedMax} км/год</code>
+  let msg = `✨ <b>Прогноз погоди на завтра (${formattedDate})</b> 🌤️\n\n`;
 
-Гарного вечора та спокійної ночі! 🇸🇰🇺🇦`;
+  // Group by country
+  const groups: Record<string, { flag: string; list: CityWeatherForecast[] }> = {};
+  for (const f of forecasts) {
+    if (!groups[f.city.countryUk]) {
+      groups[f.city.countryUk] = { flag: f.city.flag, list: [] };
+    }
+    groups[f.city.countryUk].list.push(f);
+  }
+
+  for (const [country, group] of Object.entries(groups)) {
+    msg += `${group.flag} <b>${country}:</b>\n`;
+    for (const f of group.list) {
+      const emoji = getWeatherEmoji(f.weatherCode);
+      msg += `• <b>${f.city.nameUk}:</b> 🌡️ <code>${Math.round(f.tempMin)}°C</code>..<code>${Math.round(
+        f.tempMax
+      )}°C</code> | ${emoji} | 🌧️ <code>${f.precipProb}%</code> | 💨 <code>${Math.round(
+        f.windSpeedMax
+      )} км/г</code>\n`;
+    }
+    msg += `\n`;
+  }
+
+  msg += `Гарного вечора та спокійної ночі! 🇸🇰🇺🇦`;
+  return msg;
 }

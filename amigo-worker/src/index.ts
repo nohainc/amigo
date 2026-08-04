@@ -4,7 +4,7 @@ import { parseFeed, isLinkValid } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { StorageService } from "./services/storage";
 import { TelegramService } from "./services/telegram";
-import { fetchBratislavaTomorrowWeather, formatWeatherMessage } from "./services/weather";
+import { fetchAllCitiesWeather, formatMultiCityWeatherMessage } from "./services/weather";
 
 export interface Env {
   amigo: KVNamespace;
@@ -141,8 +141,8 @@ async function runBot(env: Env): Promise<void> {
 
       if (!alreadySentWeather) {
         console.log(`Sending evening weather forecast for tomorrow...`);
-        const weather = await fetchBratislavaTomorrowWeather();
-        const weatherMessage = formatWeatherMessage(weather);
+        const weatherForecasts = await fetchAllCitiesWeather();
+        const weatherMessage = formatMultiCityWeatherMessage(weatherForecasts);
 
         // Send to weather topic (thread ID 22)
         await telegram.sendRawMessage("weather", weatherMessage);
