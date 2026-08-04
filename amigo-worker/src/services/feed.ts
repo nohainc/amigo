@@ -83,3 +83,28 @@ export async function parseFeed(url: string): Promise<FeedItem[]> {
 
   return items;
 }
+
+export async function isLinkValid(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: "HEAD",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      },
+    });
+    return response.status >= 200 && response.status < 400;
+  } catch {
+    try {
+      const getResponse = await fetch(url, {
+        method: "GET",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        },
+      });
+      return getResponse.status >= 200 && getResponse.status < 400;
+    } catch {
+      return false;
+    }
+  }
+}
+

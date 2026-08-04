@@ -1,5 +1,5 @@
 import feedsNano from "./feeds.nano";
-import { parseFeed } from "./services/feed";
+import { parseFeed, isLinkValid } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { StorageService } from "./services/storage";
 import { TelegramService } from "./services/telegram";
@@ -96,6 +96,13 @@ async function runBot(env: Env): Promise<void> {
 
         const alreadySent = await storage.isSent(item.link);
         if (!alreadySent) {
+          // Verify that the link is valid before processing
+          const isValid = await isLinkValid(item.link);
+          if (!isValid) {
+            console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
+            continue;
+          }
+
           console.log(`Found new feed item: ${item.title}. Forwarding to Telegram topic "${feed.topic}"`);
           // Stagger sends slightly if there are multiple items
           await telegram.sendItem(feed.topic, item, feed.language);
