@@ -1,1 +1,0 @@
-powershell Invoke-Build %*

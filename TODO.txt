@@ -1,2 +1,0 @@
-systemctl start|stop|status amigo
-journalctl -u amigo

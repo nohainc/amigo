@@ -1,2 +1,0 @@
-systemctl status amigo
-
