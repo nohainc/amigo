@@ -1,4 +1,5 @@
 import feedsNano from "./feeds.nano";
+import topicsNano from "./topics.nano";
 import { parseFeed, isLinkValid } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { StorageService } from "./services/storage";
@@ -61,8 +62,9 @@ async function runBot(env: Env): Promise<void> {
   }
 
   const feedsConfig: any[] = parseNano(feedsNano);
+  const topicsConfig: any[] = parseNano(topicsNano);
   const storage = new StorageService(env.amigo);
-  const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, env.AI);
+  const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI);
 
   for (const feed of feedsConfig) {
 

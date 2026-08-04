@@ -1,0 +1,125 @@
+:
+    ..
+        id 1
+        name_uk Важливе
+        name_en Important
+        tags:
+            important
+            announcement
+            warning
+    ..
+        id 3
+        name_uk Новини
+        name_en News
+        tags:
+            news
+            slovakia
+            daily
+    ..
+        id 4
+        name_uk Події
+        name_en Events
+        tags:
+            events
+            culture
+            concert
+            activities
+    ..
+        id 5
+        name_uk Документи
+        name_en Documents
+        tags:
+            documents
+            residence
+            legal
+            immigration
+    ..
+        id 6
+        name_uk Робота
+        name_en Jobs
+        tags:
+            jobs
+            work
+            vacancy
+            career
+    ..
+        id 7
+        name_uk Житло
+        name_en Housing
+        tags:
+            housing
+            apartment
+            rent
+            accommodation
+    ..
+        id 8
+        name_uk Допомога
+        name_en Help
+        tags:
+            help
+            charity
+            humanitarian
+            support
+    ..
+        id 9
+        name_uk Послуги
+        name_en Services
+        tags:
+            services
+            business
+            local
+            health
+            medicine
+    ..
+        id 10
+        name_uk Транспорт
+        name_en Transport
+        tags:
+            transport
+            bus
+            train
+            ticket
+    ..
+        id 11
+        name_uk Спілкування
+        name_en Chat
+        tags:
+            chat
+            general
+            discussion
+            community
+    ..
+        id 12
+        name_uk Діти
+        name_en Children
+        tags:
+            children
+            school
+            kindergarten
+            family
+    ..
+        id 15
+        name_uk Спорт
+        name_en Sport
+        tags:
+            sport
+            fitness
+            football
+            running
+    ..
+        id 18
+        name_uk Маркет
+        name_en Market
+        tags:
+            market
+            buy
+            sell
+            trade
+    ..
+        id 20
+        name_uk Україна
+        name_en Ukraine
+        tags:
+            ukraine
+            news-ukraine
+            war-updates

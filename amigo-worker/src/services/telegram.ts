@@ -13,21 +13,32 @@ export class TelegramService {
   private ai?: any;
   private topicThreadMap: Record<string, number>;
 
-  constructor(token: string, chatId: string, ai?: any) {
+  constructor(token: string, chatId: string, topicsConfig: any[], ai?: any) {
     this.token = token;
     this.chatId = chatId;
     this.ai = ai;
-    // Map topics to their respective Telegram thread IDs
-    this.topicThreadMap = {
-      news: 1, // Default topic thread IDs
-      immigration: 2,
-      charity: 3,
-      travel: 11,
-      events: 12,
-      ukraine: 301,
-      health: 8,
-      // User can add more topic -> thread ID mapping here
-    };
+    
+    // Dynamically build map of topic name/tag -> Telegram thread ID from config
+    this.topicThreadMap = {};
+    for (const t of topicsConfig) {
+      const id = parseInt(t.id, 10);
+      if (isNaN(id)) continue;
+      
+      // Map English name
+      if (t.name_en) {
+        this.topicThreadMap[t.name_en.toLowerCase()] = id;
+      }
+      // Map Ukrainian name
+      if (t.name_uk) {
+        this.topicThreadMap[t.name_uk.toLowerCase()] = id;
+      }
+      // Map all tags associated with this topic
+      if (Array.isArray(t.tags)) {
+        for (const tag of t.tags) {
+          this.topicThreadMap[tag.toLowerCase()] = id;
+        }
+      }
+    }
   }
 
   /**
