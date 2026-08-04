@@ -95,15 +95,15 @@ export class TelegramService {
 
   private async formatMessage(item: FeedItem, lang: string): Promise<string> {
     const isWeb = await this.isWebsite(item.link);
-    let titleHtml = `<a href="${item.link}">${item.title}</a>`;
+    let titleHtml = `<a href="${item.link}">${this.cleanText(item.title)}</a>`;
     let body = "";
 
     if (item.description) {
-      body += `${item.description}\n\n`;
+      body += `${this.cleanDescription(item.description)}\n\n`;
     }
 
     if (item.categories && item.categories.length > 0) {
-      body += `Категорія: ${item.categories.join(" | ")}\n\n`;
+      body += `Категорія: ${item.categories.map(c => this.cleanText(c)).join(" | ")}\n\n`;
     }
 
     if (lang !== "uk") {
@@ -155,6 +155,28 @@ export class TelegramService {
       ".avi", ".mov", ".docx", ".xlsx", ".pptx", ".epub", ".dmg", ".exe"
     ];
     return !binaryExtensions.some(ext => lowercaseUrl.endsWith(ext) || lowercaseUrl.includes(ext + "?"));
+  }
+
+  private cleanText(text: string): string {
+    if (!text) return "";
+    // Decode common entities first to avoid double encoding, then escape HTML chars
+    return text
+      .replace(/&nbsp;/g, " ")
+      .replace(/&#160;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  private cleanDescription(text: string): string {
+    if (!text) return "";
+    // 1. Strip all HTML tags
+    let cleaned = text.replace(/<[^>]*>/g, "");
+    // 2. Escape HTML special characters for Telegram compatibility
+    return this.cleanText(cleaned);
   }
 
   private async translateText(text: string, srcLang: string): Promise<string> {

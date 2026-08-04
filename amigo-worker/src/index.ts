@@ -66,57 +66,57 @@ async function runBot(env: Env): Promise<void> {
   const storage = new StorageService(env.amigo);
   const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI);
 
-  for (const feed of feedsConfig) {
-
-    if (!feed.active) {
-      continue;
-    }
-
-    try {
-      console.log(`Checking feed: ${feed.link}`);
-      const items = await parseFeed(feed.link);
-
-      // Check if feed is newly added/activated.
-      // If it has not been registered in storage before, we mark all current items as read/sent 
-      // so we don't spam the chat with historical messages.
-      const isRegistered = await storage.isFeedActivated(feed.link);
-      if (!isRegistered) {
-        console.log(`New feed registered: ${feed.link}. Marking existing items as processed.`);
-        for (const item of items) {
-          if (item.link) {
-            await storage.markAsSent(item.link);
-          }
-        }
-        await storage.activateFeed(feed.link);
+  // At 20:00 (8:00 PM), we skip the hourly RSS check to conserve subrequests
+  // and guarantee the weather forecast won't exceed Cloudflare's 50-subrequest limit.
+  if (currentLocalHour !== 20) {
+    for (const feed of feedsConfig) {
+      if (!feed.active) {
         continue;
       }
 
-      // Process feed items (find new ones)
-      for (const item of items) {
-        if (!item.link) {
+      try {
+        console.log(`Checking feed: ${feed.link}`);
+        const items = await parseFeed(feed.link);
+
+        // Check if feed is newly added/activated.
+        const isRegistered = await storage.isFeedActivated(feed.link);
+        if (!isRegistered) {
+          console.log(`New feed registered: ${feed.link}. Marking existing items as processed.`);
+          for (const item of items) {
+            if (item.link) {
+              await storage.markAsSent(item.link);
+            }
+          }
+          await storage.activateFeed(feed.link);
           continue;
         }
 
-        const alreadySent = await storage.isSent(item.link);
-        if (!alreadySent) {
-          // Verify that the link is valid before processing
-          const isValid = await isLinkValid(item.link);
-          if (!isValid) {
-            console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
+        // Process feed items (find new ones)
+        for (const item of items) {
+          if (!item.link) {
             continue;
           }
 
-          console.log(`Found new feed item: ${item.title}. Forwarding to Telegram topic "${feed.topic}"`);
-          // Stagger sends slightly if there are multiple items
-          await telegram.sendItem(feed.topic, item, feed.language);
-          await storage.markAsSent(item.link);
-          
-          // Small sleep to avoid hit limits if we send multiple entries (2 seconds sleep)
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          const alreadySent = await storage.isSent(item.link);
+          if (!alreadySent) {
+            // Verify that the link is valid before processing
+            const isValid = await isLinkValid(item.link);
+            if (!isValid) {
+              console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
+              continue;
+            }
+
+            console.log(`Found new feed item: ${item.title}. Forwarding to Telegram topic "${feed.topic}"`);
+            await telegram.sendItem(feed.topic, item, feed.language);
+            await storage.markAsSent(item.link);
+            
+            // Small sleep to avoid hit limits if we send multiple entries (2 seconds sleep)
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
         }
+      } catch (error) {
+        console.error(`Error processing feed ${feed.link}:`, error);
       }
-    } catch (error) {
-      console.error(`Error processing feed ${feed.link}:`, error);
     }
   }
 
