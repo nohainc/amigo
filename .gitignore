@@ -1,5 +1,14 @@
-/.vscode
-__debug*
-/friend
-/bin/friend
-/bin/feeds.db
+# OS/IDE files
+.DS_Store
+.vscode/
+.idea/
+
+# Node.js
+node_modules/
+package-lock.json
+
+# Cloudflare Wrangler
+.wrangler/
+.dev.vars
+dist/
+worker-configuration.d.ts
