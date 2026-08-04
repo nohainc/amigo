@@ -140,7 +140,17 @@ export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]):
     msg += `\n`;
   }
 
-  msg += `Гарного вечора та спокійної ночі! 🇸🇰🇺🇦\n\n`;
+  const wishes = [
+    "Гарного вечора та спокійної ночі! 🇸🇰🇺🇦",
+    "Затишного вечора та спокійного сну! 🇸🇰🇺🇦",
+    "Приємного вечора та мирної ночі! 🇸🇰🇺🇦",
+    "Чудового вечора та гарних снів! 🇸🇰🇺🇦",
+    "Гарного вечірнього відпочинку та тихої ночі! 🇸🇰🇺🇦",
+    "Бажаємо вам затишного вечора та доброї ночі! 🇸🇰🇺🇦"
+  ];
+  const randomWish = wishes[Math.floor(Math.random() * wishes.length)];
+
+  msg += `${randomWish}\n\n`;
   msg += `<i>Джерело даних: Open-Meteo</i>`;
   return msg;
 }
