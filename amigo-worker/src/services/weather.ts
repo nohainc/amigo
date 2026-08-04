@@ -104,7 +104,7 @@ export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]):
   const parts = forecasts[0].date.split("-");
   const formattedDate = parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : forecasts[0].date;
 
-  let msg = `✨ <b>Прогноз погоди на завтра (${formattedDate})</b> 🌤️\n\n`;
+  let msg = `✨ <b>Прогноз погоди на ${formattedDate}</b> 🌤️\n\n`;
 
   // Group by country
   const groups: Record<string, { flag: string; list: CityWeatherForecast[] }> = {};
@@ -119,11 +119,13 @@ export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]):
     msg += `${group.flag} <b>${country}:</b>\n`;
     for (const f of group.list) {
       const emoji = getWeatherEmoji(f.weatherCode);
-      msg += `<b>${f.city.nameUk}:</b> 🌡️ <code>${Math.round(f.tempMin)}°C</code>..<code>${Math.round(f.tempMax)}°C</code>\n${emoji} | 🌧️ <code>${f.precipProb}%</code> | 💨 <code>${Math.round(f.windSpeedMax)} км/г</code>\n`;
+      const windMs = Math.round(f.windSpeedMax / 3.6);
+      msg += `<b>${f.city.nameUk}:</b> <code>${Math.round(f.tempMin)}°C</code>..<code>${Math.round(f.tempMax)}°C</code>\n${emoji} | <code>${f.precipProb}%</code> | <code>${windMs} м/с</code>\n`;
     }
     msg += `\n`;
   }
 
-  msg += `Гарного вечора та спокійної ночі! 🇸🇰🇺🇦`;
+  msg += `Гарного вечора та спокійної ночі! 🇸🇰🇺🇦\n\n`;
+  msg += `<i>Джерело даних: Open-Meteo</i>`;
   return msg;
 }
