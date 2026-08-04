@@ -10,11 +10,13 @@ export interface FeedItem {
 export class TelegramService {
   private token: string;
   private chatId: string;
+  private ai?: any;
   private topicThreadMap: Record<string, number>;
 
-  constructor(token: string, chatId: string) {
+  constructor(token: string, chatId: string, ai?: any) {
     this.token = token;
     this.chatId = chatId;
+    this.ai = ai;
     // Map topics to their respective Telegram thread IDs
     this.topicThreadMap = {
       news: 1, // Default topic thread IDs
@@ -99,7 +101,7 @@ export class TelegramService {
       let translatedBody = body;
       try {
         if (body.trim()) {
-          translatedBody = await translateMessage(body, srcLang, "uk");
+          translatedBody = await this.translateText(body, srcLang);
         }
       } catch (err) {
         console.error("Translation error:", err);
@@ -142,5 +144,25 @@ export class TelegramService {
       ".avi", ".mov", ".docx", ".xlsx", ".pptx", ".epub", ".dmg", ".exe"
     ];
     return !binaryExtensions.some(ext => lowercaseUrl.endsWith(ext) || lowercaseUrl.includes(ext + "?"));
+  }
+
+  private async translateText(text: string, srcLang: string): Promise<string> {
+    if (this.ai) {
+      try {
+        console.log(`Translating using Cloudflare Workers AI...`);
+        const response = await this.ai.run("@cf/meta/m2m100-1.2b", {
+          text: text,
+          source_lang: srcLang,
+          target_lang: "uk",
+        });
+        if (response?.translated_text) {
+          return response.translated_text;
+        }
+      } catch (err) {
+        console.error("Cloudflare Workers AI translation failed, falling back to Google Translate:", err);
+      }
+    }
+    // Fallback to Google Translate
+    return translateMessage(text, srcLang, "uk");
   }
 }

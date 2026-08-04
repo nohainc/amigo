@@ -9,6 +9,10 @@ crons = ["0 * * * *"] # Every hour
 binding = "amigo"
 id = "972c4dcd683e4d5696edddb7d0253423"
 
+[ai]
+binding = "AI"
+
+
 
 
 [vars]

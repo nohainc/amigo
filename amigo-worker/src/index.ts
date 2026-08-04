@@ -7,6 +7,7 @@ import { fetchBratislavaTomorrowWeather, formatWeatherMessage } from "./services
 
 export interface Env {
   amigo: KVNamespace;
+  AI: any;
   TELEGRAM_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
   TIMEZONE?: string;
@@ -61,7 +62,7 @@ async function runBot(env: Env): Promise<void> {
 
   const feedsConfig: any[] = parseNano(feedsNano);
   const storage = new StorageService(env.amigo);
-  const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID);
+  const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, env.AI);
 
   for (const feed of feedsConfig) {
 
