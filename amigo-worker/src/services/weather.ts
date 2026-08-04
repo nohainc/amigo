@@ -31,10 +31,12 @@ export interface CityWeatherForecast {
   weatherCode: number;
 }
 
+import { trackedFetch } from "../utils/tracker";
+
 export async function fetchCityTomorrowWeather(city: CityConfig): Promise<CityWeatherForecast> {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&timezone=auto`;
 
-  const response = await fetch(url);
+  const response = await trackedFetch(url);
   if (!response.ok) {
     throw new Error(`Open-Meteo API failed for ${city.nameUk}: ${response.statusText}`);
   }

@@ -5,6 +5,7 @@ import { parseNano } from "./services/nanomarkup";
 import { StorageService } from "./services/storage";
 import { TelegramService } from "./services/telegram";
 import { fetchAllCitiesWeather, formatMultiCityWeatherMessage } from "./services/weather";
+import { resetSubrequestsCount } from "./utils/tracker";
 
 export interface Env {
   amigo: KVNamespace;
@@ -54,8 +55,8 @@ async function runBot(env: Env): Promise<void> {
     console.log(`Skipping bot run. Current hour (${currentLocalHour}) is outside working hours (${startHour}-${endHour}) for timezone ${timezone}.`);
     return;
   }
-
-  console.log(`[${currentLocalHour}:00] Executing feeds check...`);
+  resetSubrequestsCount();
+  console.log(`[${currentLocalHour}:00] Executing amigo bot run...`);
 
   if (!env.TELEGRAM_TOKEN || !env.TELEGRAM_CHAT_ID) {
     throw new Error("Missing TELEGRAM_TOKEN or TELEGRAM_CHAT_ID bindings");
@@ -66,61 +67,7 @@ async function runBot(env: Env): Promise<void> {
   const storage = new StorageService(env.amigo);
   const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI);
 
-  // At 20:00 (8:00 PM), we skip the hourly RSS check to conserve subrequests
-  // and guarantee the weather forecast won't exceed Cloudflare's 50-subrequest limit.
-  if (currentLocalHour !== 20) {
-    for (const feed of feedsConfig) {
-      if (!feed.active) {
-        continue;
-      }
-
-      try {
-        console.log(`Checking feed: ${feed.link}`);
-        const items = await parseFeed(feed.link);
-
-        // Check if feed is newly added/activated.
-        const isRegistered = await storage.isFeedActivated(feed.link);
-        if (!isRegistered) {
-          console.log(`New feed registered: ${feed.link}. Marking existing items as processed.`);
-          for (const item of items) {
-            if (item.link) {
-              await storage.markAsSent(item.link);
-            }
-          }
-          await storage.activateFeed(feed.link);
-          continue;
-        }
-
-        // Process feed items (find new ones)
-        for (const item of items) {
-          if (!item.link) {
-            continue;
-          }
-
-          const alreadySent = await storage.isSent(item.link);
-          if (!alreadySent) {
-            // Verify that the link is valid before processing
-            const isValid = await isLinkValid(item.link);
-            if (!isValid) {
-              console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
-              continue;
-            }
-
-            console.log(`Found new feed item: ${item.title}. Forwarding to Telegram topic "${feed.topic}"`);
-            await telegram.sendItem(feed.topic, item, feed.language);
-            await storage.markAsSent(item.link);
-            
-            // Small sleep to avoid hit limits if we send multiple entries (2 seconds sleep)
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-          }
-        }
-      } catch (error) {
-        console.error(`Error processing feed ${feed.link}:`, error);
-      }
-    }
-  }
-
-  // Evening Weather Forecast (runs at 8 PM / 20:00 local time)
+  // 1. Weather check runs FIRST if current local hour is 20:00 (8:00 PM)
   if (currentLocalHour === 20) {
     try {
       const dateFormatter = new Intl.DateTimeFormat("en-US", {
@@ -135,7 +82,6 @@ async function runBot(env: Env): Promise<void> {
       const day = parts.find((p) => p.type === "day")?.value;
       const todayDateStr = `${year}-${month}-${day}`;
 
-      // Check if we already sent weather forecast today (during the 20:00 hour)
       const weatherSentKey = `weather_sent:${todayDateStr}`;
       const alreadySentWeather = await env.amigo.get(weatherSentKey);
 
@@ -153,6 +99,67 @@ async function runBot(env: Env): Promise<void> {
       }
     } catch (weatherErr) {
       console.error("Error executing evening weather forecast:", weatherErr);
+    }
+  }
+
+  // 2. Feed checks run next. Order: Ukrainian feeds first, then others.
+  const sortedFeeds = [...feedsConfig].sort((a, b) => {
+    if (a.language === "uk" && b.language !== "uk") return -1;
+    if (a.language !== "uk" && b.language === "uk") return 1;
+    return 0;
+  });
+
+  try {
+    for (const feed of sortedFeeds) {
+      if (!feed.active) {
+        continue;
+      }
+
+      console.log(`Checking feed: ${feed.link}`);
+      const items = await parseFeed(feed.link);
+
+      // Check if feed is newly added/activated.
+      const isRegistered = await storage.isFeedActivated(feed.link);
+      if (!isRegistered) {
+        console.log(`New feed registered: ${feed.link}. Marking existing items as processed.`);
+        for (const item of items) {
+          if (item.link) {
+            await storage.markAsSent(item.link);
+          }
+        }
+        await storage.activateFeed(feed.link);
+        continue;
+      }
+
+      // Process feed items (find new ones)
+      for (const item of items) {
+        if (!item.link) {
+          continue;
+        }
+
+        const alreadySent = await storage.isSent(item.link);
+        if (!alreadySent) {
+          // Verify that the link is valid before processing
+          const isValid = await isLinkValid(item.link);
+          if (!isValid) {
+            console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
+            continue;
+          }
+
+          console.log(`Found new feed item: ${item.title}. Forwarding to Telegram topic "${feed.topic}"`);
+          await telegram.sendItem(feed.topic, item, feed.language);
+          await storage.markAsSent(item.link);
+          
+          // Small sleep to avoid hit limits if we send multiple entries (2 seconds sleep)
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      }
+    }
+  } catch (error: any) {
+    if (error.message === "SUBREQUESTS_LIMIT_EXCEEDED") {
+      console.warn("Cloudflare Worker subrequest limit reached (safety threshold). Gracefully interrupting execution. Remaining feeds will be processed during the next scheduled hour.");
+    } else {
+      console.error("Error processing feeds:", error);
     }
   }
 }

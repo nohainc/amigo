@@ -1,4 +1,5 @@
 import { translateMessage } from "./translate";
+import { trackedFetch } from "../utils/tracker";
 
 export interface FeedItem {
   title: string;
@@ -49,7 +50,7 @@ export class TelegramService {
     const message = await this.formatMessage(item, lang);
     const url = `https://api.telegram.org/bot${this.token}/sendMessage`;
 
-    const response = await fetch(url, {
+    const response = await trackedFetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -74,7 +75,7 @@ export class TelegramService {
     const threadId = this.topicThreadMap[topic] || 0;
     const url = `https://api.telegram.org/bot${this.token}/sendMessage`;
 
-    const response = await fetch(url, {
+    const response = await trackedFetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -133,7 +134,7 @@ export class TelegramService {
 
   private async isWebsite(url: string): Promise<boolean> {
     try {
-      const response = await fetch(url, {
+      const response = await trackedFetch(url, {
         method: "HEAD",
         headers: {
           "User-Agent":
