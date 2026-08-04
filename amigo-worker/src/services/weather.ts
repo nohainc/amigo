@@ -16,6 +16,7 @@ export const CITIES: CityConfig[] = [
   { nameUk: "Трнава", lat: 48.3775, lon: 17.5883, countryUk: "Словаччина", flag: "🇸🇰" },
   // Ukraine
   { nameUk: "Київ", lat: 50.4501, lon: 30.5234, countryUk: "Україна", flag: "🇺🇦" },
+  { nameUk: "Львів", lat: 49.8397, lon: 24.0297, countryUk: "Україна", flag: "🇺🇦" },
   // Austria
   { nameUk: "Відень", lat: 48.2082, lon: 16.3738, countryUk: "Австрія", flag: "🇦🇹" },
 ];
