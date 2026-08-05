@@ -46,7 +46,38 @@ export class TelegramService {
    * Sends the parsed feed item to the Telegram chat thread.
    */
   async sendItem(topic: string, item: FeedItem, lang: string): Promise<void> {
-    const threadId = this.topicThreadMap[topic] || 0;
+    let threadId = this.topicThreadMap[topic] || 0;
+
+    // If the feed topic is news, try to route to a more specific topic based on item categories
+    if (topic === "news" && item.categories && item.categories.length > 0) {
+      const newsThreadId = this.topicThreadMap["news"];
+      for (const cat of item.categories) {
+        const cleanedCat = cat.trim().toLowerCase();
+        
+        // Try direct match
+        let matchedThreadId = this.topicThreadMap[cleanedCat];
+        if (matchedThreadId && matchedThreadId !== newsThreadId) {
+          console.log(`Routing item "${item.title}" from news to specific topic matching category "${cat}" (thread ID: ${matchedThreadId})`);
+          threadId = matchedThreadId;
+          break;
+        }
+        
+        // Try word-by-word match
+        const words = cleanedCat.split(/[\s,]+/);
+        for (const word of words) {
+          const wordThreadId = this.topicThreadMap[word];
+          if (wordThreadId && wordThreadId !== newsThreadId) {
+            console.log(`Routing item "${item.title}" from news to specific topic matching word "${word}" (thread ID: ${wordThreadId})`);
+            threadId = wordThreadId;
+            break;
+          }
+        }
+        if (threadId !== newsThreadId) {
+          break;
+        }
+      }
+    }
+
     const message = await this.formatMessage(item, lang);
     const url = `https://api.telegram.org/bot${this.token}/sendMessage`;
 
@@ -105,7 +136,7 @@ export class TelegramService {
     }
 
     // 2. Title without link
-    message += this.cleanText(item.title);
+    let title = this.cleanText(item.title);
 
     // 3. Summary (if present)
     let summary = "";
@@ -113,14 +144,25 @@ export class TelegramService {
       summary = this.cleanDescription(item.description);
     }
 
-    // Translate summary if needed
-    if (!isUkrainian && summary.trim()) {
-      try {
-        summary = await this.translateText(summary, lang || "sk");
-      } catch (err) {
-        console.error("Translation error:", err);
+    // Translate summary if needed, or translate title if summary is missing
+    if (!isUkrainian) {
+      const srcLang = lang || "sk";
+      if (summary.trim()) {
+        try {
+          summary = await this.translateText(summary, srcLang);
+        } catch (err) {
+          console.error("Translation error (summary):", err);
+        }
+      } else {
+        try {
+          title = await this.translateText(title, srcLang);
+        } catch (err) {
+          console.error("Translation error (title):", err);
+        }
       }
     }
+
+    message += title;
 
     if (summary.trim()) {
       message += `\n\n${summary}`;
