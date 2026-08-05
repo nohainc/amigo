@@ -97,55 +97,56 @@ export class TelegramService {
   private async formatMessage(item: FeedItem, lang: string): Promise<string> {
     const isUkrainian = lang === "uk";
     const isWeb = isUkrainian ? false : await this.isWebsite(item.link);
-    let titleHtml = `<a href="${item.link}">${this.cleanText(item.title)}</a>`;
-    let body = "";
-
-    if (item.description) {
-      body += `${this.cleanDescription(item.description)}\n\n`;
-    }
-
+    
+    // 1. Category line
+    let message = "";
     if (item.categories && item.categories.length > 0) {
-      body += `Категорія: ${item.categories.map(c => this.cleanText(c)).join(" | ")}\n\n`;
+      message += `${item.categories.map(c => this.cleanText(c)).join(" | ")}\n`;
     }
 
+    // 2. Title without link
+    message += this.cleanText(item.title);
+
+    // 3. Summary (if present)
+    let summary = "";
+    if (item.description) {
+      summary = this.cleanDescription(item.description);
+    }
+
+    // Translate summary if needed
+    if (!isUkrainian && summary.trim()) {
+      try {
+        summary = await this.translateText(summary, lang || "sk");
+      } catch (err) {
+        console.error("Translation error:", err);
+      }
+    }
+
+    if (summary.trim()) {
+      message += `\n\n${summary}`;
+    }
+
+    // 4. Links line
     let domain = "";
     try {
       domain = new URL(item.link).hostname.replace(/^www\./, "");
     } catch {
       domain = item.link;
     }
-    const sourceHtml = `Джерело: <a href="${item.link}">${domain}</a>`;
 
-    if (!isUkrainian) {
+    let linksLine = `<a href="${item.link}">${domain}</a>`;
+
+    if (!isUkrainian && isWeb) {
       const srcLang = lang || "sk";
-      // Translate the body content
-      let translatedBody = body;
-      try {
-        if (body.trim()) {
-          translatedBody = await this.translateText(body, srcLang);
-        }
-      } catch (err) {
-        console.error("Translation error:", err);
-      }
-
-      if (translatedBody && !translatedBody.endsWith("\n\n")) {
-        translatedBody = translatedBody.trimEnd() + "\n\n";
-      }
-
-      const fullBody = `${translatedBody}${sourceHtml}`;
-
-      if (isWeb) {
-        const translateUrl = `http://translate.google.com/translate?sl=${srcLang}&tl=uk&u=${encodeURIComponent(
-          item.link
-        )}&client=webapp/`;
-        return `${titleHtml}\n\n<a href="${translateUrl}">${fullBody || item.title}</a>`;
-      } else {
-        return `${titleHtml}\n\n${fullBody}`;
-      }
+      const translateUrl = `http://translate.google.com/translate?sl=${srcLang}&tl=uk&u=${encodeURIComponent(
+        item.link
+      )}&client=webapp/`;
+      linksLine += ` | <a href="${translateUrl}">Переклад</a>`;
     }
 
-    const fullBody = `${body}${sourceHtml}`;
-    return `${titleHtml}\n\n${fullBody}`;
+    message += `\n\n${linksLine}`;
+
+    return message;
   }
 
   private async isWebsite(url: string): Promise<boolean> {
