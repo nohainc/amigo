@@ -28,11 +28,6 @@
         language sk
         active true
     ..
-        link https://www.sukl.sk/hlavna-stranka/slovenska-verzia/rss?days=365
-        topic health
-        language sk
-        active true
-    ..
         link https://spravy.stvr.sk/feed/
         topic news
         language sk
