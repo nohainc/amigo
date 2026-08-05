@@ -103,54 +103,116 @@ async function runBot(env: Env): Promise<void> {
   }
 
   // 2. Feed checks run next. Order is defined in feeds.nano.
+  let currentFeedLink = "";
+  let currentFeedHistory: string[] = [];
+  let historyUpdated = false;
+
   try {
     for (const feed of feedsConfig) {
       if (!feed.active) {
         continue;
       }
 
+      currentFeedLink = feed.link;
+      historyUpdated = false;
+
       console.log(`Checking feed: ${feed.link}`);
       const items = await parseFeed(feed.link);
 
-      // Check if feed is newly added/activated.
-      const isRegistered = await storage.isFeedActivated(feed.link);
-      if (!isRegistered) {
-        console.log(`New feed registered: ${feed.link}. Marking existing items as processed.`);
-        for (const item of items) {
-          if (item.link) {
-            await storage.markAsSent(item.link);
-          }
+      // Check feed history
+      let historyList = await storage.getFeedHistory(feed.link);
+
+      if (historyList === null) {
+        // Backwards compatibility migration or newly registered feed
+        const wasActive = await storage.isFeedActivated(feed.link);
+        historyList = items.map(item => item.link).filter(Boolean);
+        currentFeedHistory = historyList;
+        
+        await storage.saveFeedHistory(feed.link, currentFeedHistory);
+        if (!wasActive) {
+          console.log(`New feed registered: ${feed.link}. Marking existing items as processed in history.`);
+          await storage.activateFeed(feed.link);
         }
-        await storage.activateFeed(feed.link);
         continue;
       }
 
-      // Process feed items (find new ones)
+      currentFeedHistory = historyList;
+      const historySet = new Set(currentFeedHistory);
+      const newItems = [];
+
+      // Find new items
       for (const item of items) {
-        if (!item.link) {
-          continue;
+        if (item.link && !historySet.has(item.link)) {
+          newItems.push(item);
         }
+      }
 
-        const alreadySent = await storage.isSent(item.link);
-        if (!alreadySent) {
-          // Verify that the link is valid before processing (skip for Ukrainian feeds)
-          const isUkrainian = feed.language === "uk";
-          const isValid = isUkrainian ? true : await isLinkValid(item.link);
-          if (!isValid) {
-            console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
-            continue;
-          }
+      if (newItems.length === 0) {
+        continue;
+      }
 
-          console.log(`Found new feed item: ${item.title}. Forwarding to Telegram topic "${feed.topic}"`);
-          await telegram.sendItem(feed.topic, item, feed.language);
-          await storage.markAsSent(item.link);
-          
-          // Small sleep to avoid hit limits if we send multiple entries (2 seconds sleep)
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+      console.log(`Found ${newItems.length} new items in feed: ${feed.link}`);
+
+      // Filter invalid links (unless Ukrainian)
+      const validNewItems = [];
+      const isUkrainian = feed.language === "uk";
+      
+      for (const item of newItems) {
+        if (!item.link) continue;
+        const isValid = isUkrainian ? true : await isLinkValid(item.link);
+        if (isValid) {
+          validNewItems.push(item);
+        } else {
+          console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
+          // Add invalid links to history so we don't check them again
+          currentFeedHistory.push(item.link);
+          historyUpdated = true;
         }
+      }
+
+      if (validNewItems.length === 0) {
+        if (historyUpdated) {
+          await storage.saveFeedHistory(feed.link, currentFeedHistory);
+        }
+        continue;
+      }
+
+      // Batch translate foreign feeds
+      let processedItems = validNewItems;
+      if (!isUkrainian) {
+        processedItems = await telegram.batchTranslate(validNewItems, feed.language || "sk");
+      }
+
+      // Send items to Telegram
+      for (const item of processedItems) {
+        console.log(`Forwarding feed item: ${item.title} to Telegram topic "${feed.topic}"`);
+        await telegram.sendItem(feed.topic, item, feed.language);
+        
+        // Add to history list on successful send
+        currentFeedHistory.push(item.link);
+        historyUpdated = true;
+
+        // Small sleep to avoid hitting limits if we send multiple entries (2 seconds sleep)
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+
+      // Save history back to KV (1 request per feed)
+      if (historyUpdated) {
+        await storage.saveFeedHistory(feed.link, currentFeedHistory);
+        historyUpdated = false;
       }
     }
   } catch (error: any) {
+    // If limit exceeded, save any pending history before stopping
+    if (historyUpdated && currentFeedLink) {
+      try {
+        console.log(`Saving progress for ${currentFeedLink} before exiting...`);
+        await storage.saveFeedHistory(currentFeedLink, currentFeedHistory);
+      } catch (kvErr) {
+        console.error("Failed to save progress on interruption:", kvErr);
+      }
+    }
+
     if (error.message === "SUBREQUESTS_LIMIT_EXCEEDED") {
       console.warn("Cloudflare Worker subrequest limit reached (safety threshold). Gracefully interrupting execution. Remaining feeds will be processed during the next scheduled hour.");
     } else {

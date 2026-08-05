@@ -56,6 +56,28 @@ export class StorageService {
     await this.kv.put(key, "active");
   }
 
+  /**
+   * Gets the list of processed item link hashes for a specific feed.
+   */
+  async getFeedHistory(feedLink: string): Promise<string[] | null> {
+    const key = `history:${this.hash(feedLink)}`;
+    const value = await this.kv.get(key);
+    if (!value) return null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Saves the list of processed item link hashes for a specific feed.
+   */
+  async saveFeedHistory(feedLink: string, history: string[]): Promise<void> {
+    const key = `history:${this.hash(feedLink)}`;
+    await this.kv.put(key, JSON.stringify(history));
+  }
+
   private hash(str: string): string {
     // Simple, deterministic string hashing for KV keys (alphanumeric only)
     let hash = 0;

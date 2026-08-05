@@ -6,6 +6,8 @@ export interface FeedItem {
   link: string;
   description?: string;
   categories?: string[];
+  translatedTitle?: string;
+  translatedDescription?: string;
 }
 
 export class TelegramService {
@@ -136,16 +138,16 @@ export class TelegramService {
     }
 
     // 2. Title without link
-    let title = this.cleanText(item.title);
+    let title = item.translatedTitle || this.cleanText(item.title);
 
     // 3. Summary (if present)
     let summary = "";
     if (item.description) {
-      summary = this.cleanDescription(item.description);
+      summary = item.translatedDescription || this.cleanDescription(item.description);
     }
 
-    // Translate summary if needed, or translate title if summary is missing
-    if (!isUkrainian) {
+    // Translate summary if needed, or translate title if summary is missing (only if not already batch-translated)
+    if (!isUkrainian && !item.translatedTitle && !item.translatedDescription) {
       const srcLang = lang || "sk";
       if (summary.trim()) {
         try {
@@ -257,5 +259,47 @@ export class TelegramService {
     }
     // Fallback to Google Translate
     return translateMessage(text, srcLang, "uk");
+  }
+
+  /**
+   * Translates multiple feed items in a single request using a separator.
+   */
+  async batchTranslate(items: FeedItem[], srcLang: string): Promise<FeedItem[]> {
+    if (items.length === 0) return items;
+
+    const separator = "\n\n===TR_SEP===\n\n";
+    const textsToTranslate = items.map(item => {
+      if (item.description && item.description.trim()) {
+        return this.cleanDescription(item.description);
+      }
+      return this.cleanText(item.title);
+    });
+
+    const combined = textsToTranslate.join(separator);
+    try {
+      console.log(`[Batch Translation] Translating ${items.length} items in a single request...`);
+      const translated = await this.translateText(combined, srcLang);
+      
+      // Split using regex to ignore case on TR_SEP
+      const translations = translated.split(/===TR_SEP===/i).map(s => s.trim());
+      
+      if (translations.length === items.length) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.description && item.description.trim()) {
+            item.translatedDescription = translations[i];
+          } else {
+            item.translatedTitle = translations[i];
+          }
+        }
+        console.log(`[Batch Translation] Successfully batch-translated all ${items.length} items.`);
+      } else {
+        console.warn(`[Batch Translation] Expected ${items.length} translations, but got ${translations.length}. Falling back to individual translation.`);
+      }
+    } catch (err) {
+      console.error("[Batch Translation] Failed:", err);
+    }
+
+    return items;
   }
 }
