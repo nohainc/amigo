@@ -129,7 +129,7 @@ export class TelegramService {
 
   private async formatMessage(item: FeedItem, lang: string): Promise<string> {
     const isUkrainian = lang === "uk";
-    const isWeb = isUkrainian ? false : await this.isWebsite(item.link);
+    const isWeb = isUkrainian ? false : this.isLikelyWebsite(item.link);
     
     // 1. Category line
     let message = "";
@@ -193,24 +193,7 @@ export class TelegramService {
     return message;
   }
 
-  private async isWebsite(url: string): Promise<boolean> {
-    try {
-      const response = await trackedFetch(url, {
-        method: "HEAD",
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        },
-      });
-      if (response.ok) {
-        const contentType = response.headers.get("content-type") || "";
-        return contentType.includes("text/html") || contentType.includes("text/xhtml");
-      }
-    } catch (err) {
-      console.warn(`isWebsite HEAD request failed for ${url}:`, err);
-    }
-
-    // Fallback: Check URL structure. If it has no typical binary extension, assume it is a webpage.
+  private isLikelyWebsite(url: string): boolean {
     const lowercaseUrl = url.toLowerCase();
     const binaryExtensions = [
       ".jpg", ".jpeg", ".png", ".gif", ".pdf", ".zip", ".rar", ".mp3", ".mp4", 

@@ -1,10 +1,12 @@
 export interface KVNamespaceMock {
   get(key: string): Promise<string | null>;
-  put(key: string, value: string): Promise<void>;
+  put(key: string, value: string, options?: KVNamespacePutOptions): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 
 export class StorageService {
   private kv: KVNamespace | KVNamespaceMock;
+  private readonly recentLimit = 300;
 
   constructor(kvNamespace?: KVNamespace) {
     if (kvNamespace) {
@@ -17,65 +19,94 @@ export class StorageService {
         put: async (key: string, value: string) => {
           store.set(key, value);
         },
+        delete: async (key: string) => {
+          store.delete(key);
+        },
       };
       console.warn("Using local in-memory fallback store for amigo");
     }
   }
 
-  /**
-   * Checks if an RSS link has already been sent to Telegram.
-   */
-  async isSent(link: string): Promise<boolean> {
-    const key = `sent:${this.hash(link)}`;
-    const value = await this.kv.get(key);
-    return value !== null;
+  async acquireRunLock(ttlSeconds = 900): Promise<string | null> {
+    const key = "run_lock";
+    const existing = await this.kv.get(key);
+    const now = Date.now();
+
+    if (existing) {
+      try {
+        const lock = JSON.parse(existing);
+        if (typeof lock?.expiresAt === "number" && lock.expiresAt > now) {
+          return null;
+        }
+      } catch {
+        return null;
+      }
+    }
+
+    const token = crypto.randomUUID();
+    await this.kv.put(
+      key,
+      JSON.stringify({ token, expiresAt: now + ttlSeconds * 1000 }),
+      { expirationTtl: ttlSeconds }
+    );
+    return token;
   }
 
-  /**
-   * Marks an RSS link as sent.
-   */
-  async markAsSent(link: string): Promise<void> {
-    const key = `sent:${this.hash(link)}`;
-    await this.kv.put(key, new Date().toISOString());
+  async releaseRunLock(token: string): Promise<void> {
+    const key = "run_lock";
+    const existing = await this.kv.get(key);
+    if (!existing) return;
+
+    try {
+      const lock = JSON.parse(existing);
+      if (lock?.token === token) {
+        await this.kv.delete(key);
+      }
+    } catch {
+      // Leave malformed locks to expire naturally.
+    }
   }
 
-  /**
-   * Check if feed is active in DB.
-   */
-  async isFeedActivated(link: string): Promise<boolean> {
-    const key = `feed:${this.hash(link)}`;
-    const value = await this.kv.get(key);
-    return value === "active";
-  }
-
-  /**
-   * Activate feed (mark all its current items as processed to prevent posting historical feed data on activation).
-   */
-  async activateFeed(link: string): Promise<void> {
-    const key = `feed:${this.hash(link)}`;
-    await this.kv.put(key, "active");
-  }
-
-  /**
-   * Gets the list of processed item link hashes for a specific feed.
-   */
-  async getFeedHistory(feedLink: string): Promise<string[] | null> {
-    const key = `history:${this.hash(feedLink)}`;
+  async getFeedSnapshot(feedLink: string): Promise<string[] | null> {
+    const key = `snapshot:${this.hash(feedLink)}`;
     const value = await this.kv.get(key);
     if (!value) return null;
     try {
-      return JSON.parse(value);
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter((link) => typeof link === "string") : [];
     } catch {
       return [];
     }
   }
 
-  /**
-   * Saves the list of processed item link hashes for a specific feed.
-   */
-  async saveFeedHistory(feedLink: string, history: string[]): Promise<void> {
-    const key = `history:${this.hash(feedLink)}`;
-    await this.kv.put(key, JSON.stringify(history));
+  async saveFeedSnapshot(feedLink: string, links: string[]): Promise<void> {
+    const key = `snapshot:${this.hash(feedLink)}`;
+    await this.kv.put(key, JSON.stringify(this.uniqueLinks(links)));
+  }
+
+  async getRecentSent(feedLink: string): Promise<string[]> {
+    const key = `recent:${this.hash(feedLink)}`;
+    const value = await this.kv.get(key);
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter((link) => typeof link === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async saveRecentSent(feedLink: string, links: string[]): Promise<void> {
+    const key = `recent:${this.hash(feedLink)}`;
+    await this.kv.put(key, JSON.stringify(this.uniqueLinks(links).slice(0, this.recentLimit)));
+  }
+
+  mergeRecentSent(existing: string[], sentNow: string[]): string[] {
+    return this.uniqueLinks([...sentNow, ...existing]).slice(0, this.recentLimit);
+  }
+
+  private uniqueLinks(links: string[]): string[] {
+    return [...new Set(links.filter(Boolean))];
   }
 
   private hash(str: string): string {

@@ -66,102 +66,92 @@ async function runBot(env: Env): Promise<void> {
   const topicsConfig: any[] = parseNano(topicsNano);
   const storage = new StorageService(env.amigo);
   const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI);
+  const runLockToken = await storage.acquireRunLock();
 
-  // 1. Weather check runs FIRST if current local hour is 18:00 (6:00 PM)
-  if (currentLocalHour === 18) {
-    try {
-      const dateFormatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: timezone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      });
-      const parts = dateFormatter.formatToParts(new Date());
-      const year = parts.find((p) => p.type === "year")?.value;
-      const month = parts.find((p) => p.type === "month")?.value;
-      const day = parts.find((p) => p.type === "day")?.value;
-      const todayDateStr = `${year}-${month}-${day}`;
-
-      const weatherSentKey = `weather_sent:${todayDateStr}`;
-      const alreadySentWeather = await env.amigo.get(weatherSentKey);
-
-      if (!alreadySentWeather) {
-        console.log(`Sending evening weather forecast for tomorrow...`);
-        const weatherForecasts = await fetchAllCitiesWeather();
-        const weatherMessage = formatMultiCityWeatherMessage(weatherForecasts);
-
-        // Send to weather topic (thread ID 22)
-        await telegram.sendRawMessage("weather", weatherMessage);
-
-        // Mark as sent in KV
-        await env.amigo.put(weatherSentKey, "sent");
-        console.log("Tomorrow's weather forecast successfully posted and logged in KV");
-      }
-    } catch (weatherErr) {
-      console.error("Error executing evening weather forecast:", weatherErr);
-    }
+  if (!runLockToken) {
+    console.log("Skipping bot run because another run is still in progress.");
+    return;
   }
 
-  // 2. Feed checks run next. Order is defined in feeds.nano.
   let currentFeedLink = "";
-  let currentFeedHistory: string[] = [];
-  let historyUpdated = false;
+  let currentFeedSnapshot: string[] = [];
+  let currentRecentSent: string[] = [];
+  let currentSentLinks: string[] = [];
+  let progressUpdated = false;
 
   try {
+    // 1. Weather check runs FIRST if current local hour is 18:00 (6:00 PM)
+    if (currentLocalHour === 18) {
+      try {
+        const dateFormatter = new Intl.DateTimeFormat("en-US", {
+          timeZone: timezone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        });
+        const parts = dateFormatter.formatToParts(new Date());
+        const year = parts.find((p) => p.type === "year")?.value;
+        const month = parts.find((p) => p.type === "month")?.value;
+        const day = parts.find((p) => p.type === "day")?.value;
+        const todayDateStr = `${year}-${month}-${day}`;
+
+        const weatherSentKey = `weather_sent:${todayDateStr}`;
+        const alreadySentWeather = await env.amigo.get(weatherSentKey);
+
+        if (!alreadySentWeather) {
+          console.log(`Sending evening weather forecast for tomorrow...`);
+          const weatherForecasts = await fetchAllCitiesWeather();
+          const weatherMessage = formatMultiCityWeatherMessage(weatherForecasts);
+
+          // Send to weather topic (thread ID 22)
+          await telegram.sendRawMessage("weather", weatherMessage);
+
+          // Mark as sent in KV
+          await env.amigo.put(weatherSentKey, "sent");
+          console.log("Tomorrow's weather forecast successfully posted and logged in KV");
+        }
+      } catch (weatherErr) {
+        console.error("Error executing evening weather forecast:", weatherErr);
+      }
+    }
+
+    // 2. Feed checks run next. Order is defined in feeds.nano.
     for (const feed of feedsConfig) {
       if (!feed.active) {
         continue;
       }
 
       currentFeedLink = feed.link;
-      historyUpdated = false;
+      progressUpdated = false;
+      currentSentLinks = [];
 
       console.log(`Checking feed: ${feed.link}`);
       const items = await parseFeed(feed.link);
+      const currentFeedLinks = items.map((item) => item.link).filter(Boolean);
 
-      // Check feed history
-      let historyList = await storage.getFeedHistory(feed.link);
+      const previousSnapshot = await storage.getFeedSnapshot(feed.link);
+      currentFeedSnapshot = currentFeedLinks;
 
-      if (historyList === null) {
-        // Backwards compatibility migration or newly registered feed
-        const wasActive = await storage.isFeedActivated(feed.link);
-        if (wasActive) {
-          // Migrate history by checking which current items were already sent
-          const migratedHistory: string[] = [];
-          for (const item of items) {
-            if (item.link) {
-              const alreadySent = await storage.isSent(item.link);
-              if (alreadySent) {
-                migratedHistory.push(item.link);
-              }
-            }
-          }
-          historyList = migratedHistory;
-          currentFeedHistory = historyList;
-          await storage.saveFeedHistory(feed.link, currentFeedHistory);
-          console.log(`Migrated history for active feed: ${feed.link} with ${migratedHistory.length} sent items.`);
-        } else {
-          // Newly registered feed
-          historyList = items.map(item => item.link).filter(Boolean);
-          currentFeedHistory = historyList;
-          await storage.saveFeedHistory(feed.link, currentFeedHistory);
-          await storage.activateFeed(feed.link);
-          continue;
-        }
+      if (previousSnapshot === null) {
+        await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
+        console.log(`Initialized snapshot for feed: ${feed.link} with ${currentFeedSnapshot.length} items.`);
+        continue;
       }
 
-      currentFeedHistory = historyList;
-      const historySet = new Set(currentFeedHistory);
+      currentRecentSent = await storage.getRecentSent(feed.link);
+      const previousSnapshotSet = new Set(previousSnapshot);
+      const recentSentSet = new Set(currentRecentSent);
       const newItems = [];
 
       // Find new items
       for (const item of items) {
-        if (item.link && !historySet.has(item.link)) {
+        if (item.link && !previousSnapshotSet.has(item.link) && !recentSentSet.has(item.link)) {
           newItems.push(item);
         }
       }
 
       if (newItems.length === 0) {
+        await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
         continue;
       }
 
@@ -178,16 +168,11 @@ async function runBot(env: Env): Promise<void> {
           validNewItems.push(item);
         } else {
           console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
-          // Add invalid links to history so we don't check them again
-          currentFeedHistory.push(item.link);
-          historyUpdated = true;
         }
       }
 
       if (validNewItems.length === 0) {
-        if (historyUpdated) {
-          await storage.saveFeedHistory(feed.link, currentFeedHistory);
-        }
+        await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
         continue;
       }
 
@@ -202,26 +187,28 @@ async function runBot(env: Env): Promise<void> {
         console.log(`Forwarding feed item: ${item.title} to Telegram topic "${feed.topic}"`);
         await telegram.sendItem(feed.topic, item, feed.language);
         
-        // Add to history list on successful send
-        currentFeedHistory.push(item.link);
-        historyUpdated = true;
+        currentSentLinks.push(item.link);
+        progressUpdated = true;
 
         // Small sleep to avoid hitting limits if we send multiple entries (2 seconds sleep)
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
 
-      // Save history back to KV (1 request per feed)
-      if (historyUpdated) {
-        await storage.saveFeedHistory(feed.link, currentFeedHistory);
-        historyUpdated = false;
+      if (progressUpdated) {
+        currentRecentSent = storage.mergeRecentSent(currentRecentSent, currentSentLinks);
+        await storage.saveRecentSent(feed.link, currentRecentSent);
+        progressUpdated = false;
       }
+      await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
     }
   } catch (error: any) {
-    // If limit exceeded, save any pending history before stopping
-    if (historyUpdated && currentFeedLink) {
+    // If limit exceeded, save successfully sent links before stopping.
+    if (progressUpdated && currentFeedLink) {
       try {
         console.log(`Saving progress for ${currentFeedLink} before exiting...`);
-        await storage.saveFeedHistory(currentFeedLink, currentFeedHistory);
+        currentRecentSent = storage.mergeRecentSent(currentRecentSent, currentSentLinks);
+        await storage.saveRecentSent(currentFeedLink, currentRecentSent);
+        await storage.saveFeedSnapshot(currentFeedLink, currentFeedSnapshot);
       } catch (kvErr) {
         console.error("Failed to save progress on interruption:", kvErr);
       }
@@ -232,6 +219,7 @@ async function runBot(env: Env): Promise<void> {
     } else {
       console.error("Error processing feeds:", error);
     }
+  } finally {
+    await storage.releaseRunLock(runLockToken);
   }
 }
-
