@@ -101,7 +101,7 @@ export class TelegramService {
     // 1. Category line
     let message = "";
     if (item.categories && item.categories.length > 0) {
-      message += `${item.categories.map(c => this.cleanText(c)).join(" | ")}\n`;
+      message += `${item.categories.map(c => this.cleanText(c)).join(" | ")}\n\n`;
     }
 
     // 2. Title without link
