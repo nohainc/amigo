@@ -125,15 +125,29 @@ async function runBot(env: Env): Promise<void> {
       if (historyList === null) {
         // Backwards compatibility migration or newly registered feed
         const wasActive = await storage.isFeedActivated(feed.link);
-        historyList = items.map(item => item.link).filter(Boolean);
-        currentFeedHistory = historyList;
-        
-        await storage.saveFeedHistory(feed.link, currentFeedHistory);
-        if (!wasActive) {
-          console.log(`New feed registered: ${feed.link}. Marking existing items as processed in history.`);
+        if (wasActive) {
+          // Migrate history by checking which current items were already sent
+          const migratedHistory: string[] = [];
+          for (const item of items) {
+            if (item.link) {
+              const alreadySent = await storage.isSent(item.link);
+              if (alreadySent) {
+                migratedHistory.push(item.link);
+              }
+            }
+          }
+          historyList = migratedHistory;
+          currentFeedHistory = historyList;
+          await storage.saveFeedHistory(feed.link, currentFeedHistory);
+          console.log(`Migrated history for active feed: ${feed.link} with ${migratedHistory.length} sent items.`);
+        } else {
+          // Newly registered feed
+          historyList = items.map(item => item.link).filter(Boolean);
+          currentFeedHistory = historyList;
+          await storage.saveFeedHistory(feed.link, currentFeedHistory);
           await storage.activateFeed(feed.link);
+          continue;
         }
-        continue;
       }
 
       currentFeedHistory = historyList;
