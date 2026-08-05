@@ -1,6 +1,6 @@
 import feedsNano from "./feeds.nano";
 import topicsNano from "./topics.nano";
-import { parseFeed, isLinkValid } from "./services/feed";
+import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { FeedRunStatus, HourlyRunStatus, StorageService } from "./services/storage";
 import { TelegramService } from "./services/telegram";
@@ -200,29 +200,12 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
 
         console.log(`Found ${newItems.length} new items in feed: ${feed.link}`);
 
-        // Filter invalid links (unless Ukrainian)
-        const validNewItems = [];
         const isUkrainian = feed.language === "uk";
-      
-        for (const item of newItems) {
-          if (!item.link) continue;
-          const isValid = isUkrainian ? true : await isLinkValid(item.link);
-          if (isValid) {
-            validNewItems.push(item);
-          } else {
-            console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
-          }
-        }
-
-        if (validNewItems.length === 0) {
-          await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
-          continue;
-        }
 
         // Batch translate foreign feeds
-        let processedItems = validNewItems;
+        let processedItems = newItems;
         if (!isUkrainian) {
-          processedItems = await telegram.batchTranslate(validNewItems, feed.language || "sk");
+          processedItems = await telegram.batchTranslate(newItems, feed.language || "sk");
         }
 
         // Send items to Telegram
