@@ -66,12 +66,3 @@
         topic news
         language sk
         active true
-
-    # ----------------------------------------------------
-    # ENGLISH / OTHER FEEDS
-    # ----------------------------------------------------
-    ..
-        link https://spectator.sme.sk/rss-title
-        topic news
-        language en
-        active true
