@@ -28,4 +28,5 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: e075fa7c19eca99bccb9d1dd382d001f
           workingDirectory: amigo-worker
