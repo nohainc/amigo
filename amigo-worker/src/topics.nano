@@ -7,6 +7,9 @@
             important
             announcement
             warning
+            dôležité
+            oznámenie
+            výstraha
     ..
         id 3
         name_uk Новини
@@ -15,6 +18,9 @@
             news
             slovakia
             daily
+            správy
+            slovensko
+            denne
     ..
         id 4
         name_uk Події
@@ -24,6 +30,11 @@
             culture
             concert
             activities
+            udalosti
+            podujatia
+            kultúra
+            koncert
+            aktivity
     ..
         id 5
         name_uk Документи
@@ -33,6 +44,10 @@
             residence
             legal
             immigration
+            dokumenty
+            pobyt
+            právne
+            prisťahovalectvo
     ..
         id 6
         name_uk Робота
@@ -42,6 +57,10 @@
             work
             vacancy
             career
+            práca
+            zamestnanie
+            kariéra
+            roboty
     ..
         id 7
         name_uk Житlo
@@ -51,6 +70,10 @@
             apartment
             rent
             accommodation
+            bývanie
+            byt
+            prenájom
+            ubytovanie
     ..
         id 8
         name_uk Допомога
@@ -60,6 +83,10 @@
             charity
             humanitarian
             support
+            pomoc
+            charita
+            humanitárna
+            podpora
     ..
         id 9
         name_uk Послуги
@@ -70,6 +97,11 @@
             local
             health
             medicine
+            služby
+            podnikanie
+            miestne
+            zdravie
+            medicína
     ..
         id 10
         name_uk Транспорт
@@ -79,6 +111,10 @@
             bus
             train
             ticket
+            doprava
+            autobus
+            vlak
+            lístok
     ..
         id 11
         name_uk Спілкування
@@ -88,6 +124,9 @@
             general
             discussion
             community
+            pokec
+            diskusia
+            komunita
     ..
         id 12
         name_uk Діти
@@ -97,6 +136,10 @@
             school
             kindergarten
             family
+            deti
+            škola
+            škôlka
+            rodina
     ..
         id 15
         name_uk Спорт
@@ -106,6 +149,9 @@
             fitness
             football
             running
+            šport
+            futbal
+            beh
     ..
         id 18
         name_uk Маркет
@@ -115,6 +161,10 @@
             buy
             sell
             trade
+            trh
+            kúpa
+            predaj
+            obchod
     ..
         id 20
         name_uk Україна
@@ -123,6 +173,8 @@
             ukraine
             news-ukraine
             war-updates
+            ukrajina
+            vojna
     ..
         id 22
         name_uk Погода
@@ -131,6 +183,8 @@
             weather
             forecast
             meteo
+            počasie
+            predpoveď
     ..
         id 181
         name_uk Тварини
@@ -140,3 +194,5 @@
             pets
             fauna
             veterinary
+            zvieratá
+            zver
