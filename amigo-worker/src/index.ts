@@ -2,7 +2,7 @@ import feedsNano from "./feeds.nano";
 import topicsNano from "./topics.nano";
 import { parseFeed, isLinkValid } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
-import { StorageService } from "./services/storage";
+import { FeedRunStatus, HourlyRunStatus, StorageService } from "./services/storage";
 import { TelegramService } from "./services/telegram";
 import { fetchAllCitiesWeather, formatMultiCityWeatherMessage } from "./services/weather";
 import { resetSubrequestsCount } from "./utils/tracker";
@@ -28,31 +28,55 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/run") {
       try {
-        await runBot(env);
+        await runBot(env, "manual");
         return new Response("Bot run completed successfully", { status: 200 });
       } catch (err: any) {
         return new Response(`Error running bot: ${err.message}`, { status: 500 });
       }
     }
-    return new Response("Amigo Telegram Bot Worker is active. Use /run to execute manual feed pull.", { status: 200 });
+
+    if (url.pathname === "/status") {
+      const timezone = env.TIMEZONE || "Europe/Bratislava";
+      const storage = new StorageService(env.amigo);
+      const date = getLocalDateParts(timezone).date;
+      const status = await storage.getDailyStatus(date);
+      return new Response(JSON.stringify(status ?? { date, timezone, runs: [] }, null, 2), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response("Amigo Telegram Bot Worker is active. Use /run to execute manual feed pull or /status to inspect today's status.", { status: 200 });
   },
 };
 
-async function runBot(env: Env): Promise<void> {
+async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): Promise<void> {
   const timezone = env.TIMEZONE || "Europe/Bratislava";
   const startHour = parseInt(env.START_HOUR || "9", 10);
   const endHour = parseInt(env.END_HOUR || "21", 10);
+  const storage = new StorageService(env.amigo);
+  const localDateParts = getLocalDateParts(timezone);
+  const runStatus: HourlyRunStatus = {
+    hour: localDateParts.hour,
+    startedAt: new Date().toISOString(),
+    status: "running",
+    trigger,
+    processedFeeds: 0,
+    totalFeeds: 0,
+    sentItems: 0,
+    message: "Bot run started.",
+    feeds: [],
+  };
 
   // Validate active hour constraint (Slovakia Timezone)
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hour: "numeric",
-    hour12: false,
-  });
-  const currentLocalHour = parseInt(formatter.format(new Date()), 10);
+  const currentLocalHour = parseInt(localDateParts.hour, 10);
 
   if (currentLocalHour < startHour || currentLocalHour > endHour) {
     console.log(`Skipping bot run. Current hour (${currentLocalHour}) is outside working hours (${startHour}-${endHour}) for timezone ${timezone}.`);
+    runStatus.status = "skipped";
+    runStatus.finishedAt = new Date().toISOString();
+    runStatus.message = `Skipped outside working hours (${startHour}-${endHour}).`;
+    await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
     return;
   }
   resetSubrequestsCount();
@@ -64,12 +88,19 @@ async function runBot(env: Env): Promise<void> {
 
   const feedsConfig: any[] = parseNano(feedsNano);
   const topicsConfig: any[] = parseNano(topicsNano);
-  const storage = new StorageService(env.amigo);
+  const activeFeeds = feedsConfig.filter((feed) => feed.active);
+  runStatus.totalFeeds = activeFeeds.length;
+  await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
+
   const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI);
   const runLockToken = await storage.acquireRunLock();
 
   if (!runLockToken) {
     console.log("Skipping bot run because another run is still in progress.");
+    runStatus.status = "skipped";
+    runStatus.finishedAt = new Date().toISOString();
+    runStatus.message = "Skipped because another run is still in progress.";
+    await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
     return;
   }
 
@@ -121,86 +152,114 @@ async function runBot(env: Env): Promise<void> {
         continue;
       }
 
+      const feedStatus: FeedRunStatus = {
+        feed: feed.link,
+        status: "success",
+        currentItems: 0,
+        newItems: 0,
+        sentItems: 0,
+      };
+
       currentFeedLink = feed.link;
       progressUpdated = false;
       currentSentLinks = [];
 
-      console.log(`Checking feed: ${feed.link}`);
-      const items = await parseFeed(feed.link);
-      const currentFeedLinks = items.map((item) => item.link).filter(Boolean);
+      try {
+        console.log(`Checking feed: ${feed.link}`);
+        const items = await parseFeed(feed.link);
+        const currentFeedLinks = items.map((item) => item.link).filter(Boolean);
+        feedStatus.currentItems = currentFeedLinks.length;
 
-      const previousSnapshot = await storage.getFeedSnapshot(feed.link);
-      currentFeedSnapshot = currentFeedLinks;
+        const previousSnapshot = await storage.getFeedSnapshot(feed.link);
+        currentFeedSnapshot = currentFeedLinks;
 
-      if (previousSnapshot === null) {
-        await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
-        console.log(`Initialized snapshot for feed: ${feed.link} with ${currentFeedSnapshot.length} items.`);
-        continue;
-      }
-
-      currentRecentSent = await storage.getRecentSent(feed.link);
-      const previousSnapshotSet = new Set(previousSnapshot);
-      const recentSentSet = new Set(currentRecentSent);
-      const newItems = [];
-
-      // Find new items
-      for (const item of items) {
-        if (item.link && !previousSnapshotSet.has(item.link) && !recentSentSet.has(item.link)) {
-          newItems.push(item);
+        if (previousSnapshot === null) {
+          await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
+          feedStatus.status = "initialized";
+          console.log(`Initialized snapshot for feed: ${feed.link} with ${currentFeedSnapshot.length} items.`);
+          continue;
         }
-      }
 
-      if (newItems.length === 0) {
-        await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
-        continue;
-      }
+        currentRecentSent = await storage.getRecentSent(feed.link);
+        const previousSnapshotSet = new Set(previousSnapshot);
+        const recentSentSet = new Set(currentRecentSent);
+        const newItems = [];
 
-      console.log(`Found ${newItems.length} new items in feed: ${feed.link}`);
+        // Find new items
+        for (const item of items) {
+          if (item.link && !previousSnapshotSet.has(item.link) && !recentSentSet.has(item.link)) {
+            newItems.push(item);
+          }
+        }
+        feedStatus.newItems = newItems.length;
 
-      // Filter invalid links (unless Ukrainian)
-      const validNewItems = [];
-      const isUkrainian = feed.language === "uk";
+        if (newItems.length === 0) {
+          await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
+          continue;
+        }
+
+        console.log(`Found ${newItems.length} new items in feed: ${feed.link}`);
+
+        // Filter invalid links (unless Ukrainian)
+        const validNewItems = [];
+        const isUkrainian = feed.language === "uk";
       
-      for (const item of newItems) {
-        if (!item.link) continue;
-        const isValid = isUkrainian ? true : await isLinkValid(item.link);
-        if (isValid) {
-          validNewItems.push(item);
-        } else {
-          console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
+        for (const item of newItems) {
+          if (!item.link) continue;
+          const isValid = isUkrainian ? true : await isLinkValid(item.link);
+          if (isValid) {
+            validNewItems.push(item);
+          } else {
+            console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
+          }
         }
-      }
 
-      if (validNewItems.length === 0) {
-        await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
-        continue;
-      }
+        if (validNewItems.length === 0) {
+          await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
+          continue;
+        }
 
-      // Batch translate foreign feeds
-      let processedItems = validNewItems;
-      if (!isUkrainian) {
-        processedItems = await telegram.batchTranslate(validNewItems, feed.language || "sk");
-      }
+        // Batch translate foreign feeds
+        let processedItems = validNewItems;
+        if (!isUkrainian) {
+          processedItems = await telegram.batchTranslate(validNewItems, feed.language || "sk");
+        }
 
-      // Send items to Telegram
-      for (const item of processedItems) {
-        console.log(`Forwarding feed item: ${item.title} to Telegram topic "${feed.topic}"`);
-        await telegram.sendItem(feed.topic, item, feed.language);
+        // Send items to Telegram
+        for (const item of processedItems) {
+          console.log(`Forwarding feed item: ${item.title} to Telegram topic "${feed.topic}"`);
+          await telegram.sendItem(feed.topic, item, feed.language);
         
-        currentSentLinks.push(item.link);
-        progressUpdated = true;
+          currentSentLinks.push(item.link);
+          feedStatus.sentItems = currentSentLinks.length;
+          runStatus.sentItems++;
+          progressUpdated = true;
 
-        // Small sleep to avoid hitting limits if we send multiple entries (2 seconds sleep)
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      }
+          // Small sleep to avoid hitting limits if we send multiple entries (2 seconds sleep)
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
 
-      if (progressUpdated) {
-        currentRecentSent = storage.mergeRecentSent(currentRecentSent, currentSentLinks);
-        await storage.saveRecentSent(feed.link, currentRecentSent);
-        progressUpdated = false;
+        if (progressUpdated) {
+          currentRecentSent = storage.mergeRecentSent(currentRecentSent, currentSentLinks);
+          await storage.saveRecentSent(feed.link, currentRecentSent);
+          progressUpdated = false;
+        }
+        await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
+      } catch (feedError: any) {
+        feedStatus.status = "error";
+        feedStatus.error = feedError?.message || String(feedError);
+        throw feedError;
+      } finally {
+        runStatus.feeds.push(feedStatus);
+        if (feedStatus.status !== "error") {
+          runStatus.processedFeeds++;
+        }
+        await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
       }
-      await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
     }
+    runStatus.status = "success";
+    runStatus.finishedAt = new Date().toISOString();
+    runStatus.message = `Processed all ${runStatus.totalFeeds} feeds. Sent ${runStatus.sentItems} items.`;
   } catch (error: any) {
     // If limit exceeded, save successfully sent links before stopping.
     if (progressUpdated && currentFeedLink) {
@@ -216,10 +275,38 @@ async function runBot(env: Env): Promise<void> {
 
     if (error.message === "SUBREQUESTS_LIMIT_EXCEEDED") {
       console.warn("Cloudflare Worker subrequest limit reached (safety threshold). Gracefully interrupting execution. Remaining feeds will be processed during the next scheduled hour.");
+      runStatus.status = "partial";
+      runStatus.message = "Stopped because the subrequest safety limit was reached.";
     } else {
       console.error("Error processing feeds:", error);
+      runStatus.status = "error";
+      runStatus.message = "Stopped because an error occurred.";
     }
+    runStatus.finishedAt = new Date().toISOString();
+    runStatus.error = error?.message || String(error);
   } finally {
+    await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
     await storage.releaseRunLock(runLockToken);
   }
+}
+
+function getLocalDateParts(timezone: string): { date: string; hour: string } {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  const hour = parts.find((part) => part.type === "hour")?.value || "00";
+
+  return {
+    date: `${year}-${month}-${day}`,
+    hour,
+  };
 }

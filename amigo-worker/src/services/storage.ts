@@ -4,6 +4,38 @@ export interface KVNamespaceMock {
   delete(key: string): Promise<void>;
 }
 
+export type BotRunStatus = "running" | "success" | "partial" | "skipped" | "error";
+
+export interface FeedRunStatus {
+  feed: string;
+  status: "success" | "initialized" | "error";
+  currentItems?: number;
+  newItems?: number;
+  sentItems?: number;
+  error?: string;
+}
+
+export interface HourlyRunStatus {
+  hour: string;
+  startedAt: string;
+  finishedAt?: string;
+  status: BotRunStatus;
+  trigger: "scheduled" | "manual";
+  processedFeeds: number;
+  totalFeeds: number;
+  sentItems: number;
+  message: string;
+  error?: string;
+  feeds: FeedRunStatus[];
+}
+
+export interface DailyBotStatus {
+  date: string;
+  timezone: string;
+  updatedAt: string;
+  runs: HourlyRunStatus[];
+}
+
 export class StorageService {
   private kv: KVNamespace | KVNamespaceMock;
   private readonly recentLimit = 300;
@@ -105,8 +137,49 @@ export class StorageService {
     return this.uniqueLinks([...sentNow, ...existing]).slice(0, this.recentLimit);
   }
 
+  async getDailyStatus(date: string): Promise<DailyBotStatus | null> {
+    const value = await this.kv.get(this.dailyStatusKey(date));
+    if (!value) return null;
+
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && Array.isArray(parsed.runs) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async saveHourlyStatus(date: string, timezone: string, run: HourlyRunStatus): Promise<void> {
+    const currentStatus = await this.getDailyStatus(date);
+    const runs = currentStatus?.runs ?? [];
+    const runIndex = runs.findIndex((existingRun) => existingRun.hour === run.hour);
+
+    if (runIndex >= 0) {
+      runs[runIndex] = run;
+    } else {
+      runs.push(run);
+    }
+
+    runs.sort((a, b) => a.hour.localeCompare(b.hour));
+
+    await this.kv.put(
+      this.dailyStatusKey(date),
+      JSON.stringify({
+        date,
+        timezone,
+        updatedAt: new Date().toISOString(),
+        runs,
+      }),
+      { expirationTtl: 60 * 60 * 24 * 3 }
+    );
+  }
+
   private uniqueLinks(links: string[]): string[] {
     return [...new Set(links.filter(Boolean))];
+  }
+
+  private dailyStatusKey(date: string): string {
+    return `status:${date}`;
   }
 
   private hash(str: string): string {
