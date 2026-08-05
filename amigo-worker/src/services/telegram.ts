@@ -95,7 +95,8 @@ export class TelegramService {
   }
 
   private async formatMessage(item: FeedItem, lang: string): Promise<string> {
-    const isWeb = await this.isWebsite(item.link);
+    const isUkrainian = lang === "uk";
+    const isWeb = isUkrainian ? false : await this.isWebsite(item.link);
     let titleHtml = `<a href="${item.link}">${this.cleanText(item.title)}</a>`;
     let body = "";
 
@@ -107,7 +108,15 @@ export class TelegramService {
       body += `Категорія: ${item.categories.map(c => this.cleanText(c)).join(" | ")}\n\n`;
     }
 
-    if (lang !== "uk") {
+    let domain = "";
+    try {
+      domain = new URL(item.link).hostname.replace(/^www\./, "");
+    } catch {
+      domain = item.link;
+    }
+    const sourceHtml = `Джерело: <a href="${item.link}">${domain}</a>`;
+
+    if (!isUkrainian) {
       const srcLang = lang || "sk";
       // Translate the body content
       let translatedBody = body;
@@ -119,17 +128,24 @@ export class TelegramService {
         console.error("Translation error:", err);
       }
 
+      if (translatedBody && !translatedBody.endsWith("\n\n")) {
+        translatedBody = translatedBody.trimEnd() + "\n\n";
+      }
+
+      const fullBody = `${translatedBody}${sourceHtml}`;
+
       if (isWeb) {
         const translateUrl = `http://translate.google.com/translate?sl=${srcLang}&tl=uk&u=${encodeURIComponent(
           item.link
         )}&client=webapp/`;
-        return `${titleHtml}\n\n<a href="${translateUrl}">${translatedBody || item.title}</a>`;
+        return `${titleHtml}\n\n<a href="${translateUrl}">${fullBody || item.title}</a>`;
       } else {
-        return `${titleHtml}\n\n${translatedBody}`;
+        return `${titleHtml}\n\n${fullBody}`;
       }
     }
 
-    return `${titleHtml}\n\n${body}`;
+    const fullBody = `${body}${sourceHtml}`;
+    return `${titleHtml}\n\n${fullBody}`;
   }
 
   private async isWebsite(url: string): Promise<boolean> {

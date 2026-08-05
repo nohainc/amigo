@@ -67,8 +67,8 @@ async function runBot(env: Env): Promise<void> {
   const storage = new StorageService(env.amigo);
   const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI);
 
-  // 1. Weather check runs FIRST if current local hour is 20:00 (8:00 PM)
-  if (currentLocalHour === 20) {
+  // 1. Weather check runs FIRST if current local hour is 18:00 (6:00 PM)
+  if (currentLocalHour === 18) {
     try {
       const dateFormatter = new Intl.DateTimeFormat("en-US", {
         timeZone: timezone,
@@ -139,8 +139,9 @@ async function runBot(env: Env): Promise<void> {
 
         const alreadySent = await storage.isSent(item.link);
         if (!alreadySent) {
-          // Verify that the link is valid before processing
-          const isValid = await isLinkValid(item.link);
+          // Verify that the link is valid before processing (skip for Ukrainian feeds)
+          const isUkrainian = feed.language === "uk";
+          const isValid = isUkrainian ? true : await isLinkValid(item.link);
           if (!isValid) {
             console.log(`Skipping invalid/corrupted feed item link: ${item.link}`);
             continue;
