@@ -102,15 +102,9 @@ async function runBot(env: Env): Promise<void> {
     }
   }
 
-  // 2. Feed checks run next. Order: Ukrainian feeds first, then others.
-  const sortedFeeds = [...feedsConfig].sort((a, b) => {
-    if (a.language === "uk" && b.language !== "uk") return -1;
-    if (a.language !== "uk" && b.language === "uk") return 1;
-    return 0;
-  });
-
+  // 2. Feed checks run next. Order is defined in feeds.nano.
   try {
-    for (const feed of sortedFeeds) {
+    for (const feed of feedsConfig) {
       if (!feed.active) {
         continue;
       }
