@@ -19,12 +19,12 @@
     # --- Official ---
     ..
         link https://www.slovensko.sk/sk/rss/oznamy
-        topic immigration
+        topic news
         language sk
         active true
     ..
         link https://www.vlada.gov.sk/rss/
-        topic immigration
+        topic news
         language sk
         active true
     ..
