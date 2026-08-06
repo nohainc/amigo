@@ -135,9 +135,8 @@ export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]):
     for (const f of group.list) {
       const emoji = getWeatherEmoji(f.weatherCode);
       const windMs = Math.round(f.windSpeedMax / 3.6);
-      msg += `<b>${f.city.nameUk}:</b>\n${emoji} | ${Math.round(f.tempMin)}-${Math.round(f.tempMax)}°C | ${f.precipProb}% | ${windMs} м/с\n`;
+      msg += `<b>${f.city.nameUk}:</b>\n${emoji} | ${Math.round(f.tempMin)}-${Math.round(f.tempMax)}°C | ${f.precipProb}% | ${windMs} м/с\n\n`;
     }
-    msg += `\n`;
   }
 
   msg += `ℹ️ <i>Формат: стан погоди | мін-макс температура | макс. ймовірність опадів | макс. швидкість вітру</i>\n\n`;
