@@ -64,6 +64,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     processedFeeds: 0,
     totalFeeds: 0,
     sentItems: 0,
+    sentPostsByFeed: {},
     message: "Bot run started.",
     feeds: [],
   };
@@ -216,6 +217,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
           currentSentLinks.push(item.link);
           feedStatus.sentItems = currentSentLinks.length;
           runStatus.sentItems++;
+          runStatus.sentPostsByFeed[feed.link] = feedStatus.sentItems;
           progressUpdated = true;
 
           // Small sleep to avoid hitting limits if we send multiple entries (2 seconds sleep)

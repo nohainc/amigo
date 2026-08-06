@@ -24,6 +24,7 @@ export interface HourlyRunStatus {
   processedFeeds: number;
   totalFeeds: number;
   sentItems: number;
+  sentPostsByFeed: Record<string, number>;
   message: string;
   error?: string;
   feeds: FeedRunStatus[];

@@ -117,6 +117,7 @@ Each hourly run records:
 - processed feed count
 - total active feed count
 - sent item count
+- `sentPostsByFeed`, keyed by feed URL
 - per-feed status and error
 - start/finish timestamps
 
