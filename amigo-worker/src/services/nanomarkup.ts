@@ -278,11 +278,11 @@ function serializeMappingEntry(key: string, value: Value | unknown, indentLevel:
   const indent = spaces(indentLevel);
 
   if (Array.isArray(value)) {
-    return [`${indent}${key} :`, ...serializeSequenceBody(value, indentLevel + 1)];
+    return [`${indent}${key}:`, ...serializeSequenceBody(value, indentLevel + 1)];
   }
 
   if (isPlainObject(value)) {
-    return [`${indent}${key} ..`, ...serializeMappingBody(value as Mapping, indentLevel + 1)];
+    return [`${indent}${key}..`, ...serializeMappingBody(value as Mapping, indentLevel + 1)];
   }
 
   if (typeof value === "string") {
