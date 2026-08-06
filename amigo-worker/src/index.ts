@@ -74,8 +74,6 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     processedFeeds: 0,
     totalFeeds: 0,
     sentItems: 0,
-    sentPostsByFeed: {},
-    message: "Bot run started.",
     feeds: [],
   };
 
@@ -86,7 +84,6 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     console.log(`Skipping bot run. Current hour (${currentLocalHour}) is outside working hours (${startHour}-${endHour}) for timezone ${timezone}.`);
     runStatus.status = "skipped";
     runStatus.finishedAt = new Date().toISOString();
-    runStatus.message = `Skipped outside working hours (${startHour}-${endHour}).`;
     await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
     return;
   }
@@ -110,7 +107,6 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     console.log("Skipping bot run because another run is still in progress.");
     runStatus.status = "skipped";
     runStatus.finishedAt = new Date().toISOString();
-    runStatus.message = "Skipped because another run is still in progress.";
     await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
     return;
   }
@@ -227,7 +223,6 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
           currentSentLinks.push(item.link);
           feedStatus.sentItems = currentSentLinks.length;
           runStatus.sentItems++;
-          runStatus.sentPostsByFeed[feed.link] = feedStatus.sentItems;
           progressUpdated = true;
 
           // Small sleep to avoid hitting limits if we send multiple entries (2 seconds sleep)
@@ -254,7 +249,6 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     }
     runStatus.status = "success";
     runStatus.finishedAt = new Date().toISOString();
-    runStatus.message = `Processed all ${runStatus.totalFeeds} feeds. Sent ${runStatus.sentItems} items.`;
   } catch (error: any) {
     // If limit exceeded, save successfully sent links before stopping.
     if (progressUpdated && currentFeedLink) {
@@ -271,11 +265,9 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     if (error.message === "SUBREQUESTS_LIMIT_EXCEEDED") {
       console.warn("Cloudflare Worker subrequest limit reached (safety threshold). Gracefully interrupting execution. Remaining feeds will be processed during the next scheduled hour.");
       runStatus.status = "partial";
-      runStatus.message = "Stopped because the subrequest safety limit was reached.";
     } else {
       console.error("Error processing feeds:", error);
       runStatus.status = "error";
-      runStatus.message = "Stopped because an error occurred.";
     }
     runStatus.finishedAt = new Date().toISOString();
     runStatus.error = error?.message || String(error);

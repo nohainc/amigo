@@ -115,10 +115,9 @@ Each run record is stored by `startedAt`, so multiple runs in the same hour are 
 - `status`: `running`, `success`, `partial`, `skipped`, or `error`
 - `trigger`: `scheduled` or `manual`
 - `startedAt` as the unique per-run key
-- processed feed count
+- processed feed progress as `processed/total`
 - total active feed count
 - sent item count
-- `sentPostsByFeed`, keyed by feed URL, for that run
 - per-feed status and error
 - start/finish timestamps
 

@@ -26,8 +26,8 @@ export interface HourlyRunStatus {
   processedFeeds: number;
   totalFeeds: number;
   sentItems: number;
-  sentPostsByFeed: Record<string, number>;
-  message: string;
+  sentPostsByFeed?: Record<string, number>;
+  message?: string;
   error?: string;
   feeds: FeedRunStatus[];
 }
@@ -224,11 +224,9 @@ export class StorageService {
       finishedAt: run.finishedAt,
       status: run.status,
       trigger: run.trigger,
-      processedFeeds: run.processedFeeds,
+      processedFeeds: `${run.processedFeeds}/${run.totalFeeds}`,
       totalFeeds: run.totalFeeds,
       sentItems: run.sentItems,
-      sentPostsByFeed: this.sentPostsByFeedToEntries(run.sentPostsByFeed),
-      message: run.message,
       error: run.error,
       feeds: run.feeds.map((feed) => ({
         feed: feed.feed,
@@ -264,11 +262,11 @@ export class StorageService {
         finishedAt: run.finishedAt ? this.asString(run.finishedAt) : undefined,
         status: this.normalizeRunStatus(run.status),
         trigger: this.normalizeTrigger(run.trigger),
-        processedFeeds: this.toNumber(run.processedFeeds, 0),
+        processedFeeds: this.toProcessedFeedsCount(run.processedFeeds),
         totalFeeds: this.toNumber(run.totalFeeds, 0),
         sentItems: this.toNumber(run.sentItems, 0),
         sentPostsByFeed: this.normalizeSentPostsByFeed(run.sentPostsByFeed),
-        message: this.asString(run.message),
+        message: run.message ? this.asString(run.message) : undefined,
         error: run.error ? this.asString(run.error) : undefined,
         feeds: this.normalizeFeedStatuses(run.feeds),
       };
@@ -384,6 +382,13 @@ export class StorageService {
       return Number.isFinite(parsed) ? parsed : fallback;
     }
     return fallback;
+  }
+
+  private toProcessedFeedsCount(value: unknown): number {
+    if (typeof value === "string" && value.includes("/")) {
+      return this.toNumber(value.split("/")[0], 0);
+    }
+    return this.toNumber(value, 0);
   }
 
   private isPlainObject(value: unknown): value is Record<string, unknown> {
