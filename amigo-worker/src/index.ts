@@ -298,7 +298,7 @@ async function sendWeatherForecast(
     options.telegram ||
     new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, parseNano(topicsNano), env.AI);
 
-  console.log(`Sending morning weather forecast for the day after tomorrow...`);
+  console.log(`Sending morning weather forecast for the third day from today...`);
   const weatherForecasts = await fetchAllCitiesWeather();
   const weatherMessage = formatMultiCityWeatherMessage(weatherForecasts);
   await telegram.sendRawMessage("weather", weatherMessage);
@@ -307,7 +307,7 @@ async function sendWeatherForecast(
     await env.amigo.put(weatherSentKey, "sent");
   }
 
-  console.log("Day-after-tomorrow weather forecast successfully posted.");
+  console.log("Third-day weather forecast successfully posted.");
 }
 
 function getLocalDateParts(timezone: string): { date: string; hour: string } {

@@ -42,19 +42,19 @@ export async function fetchCityTomorrowWeather(city: CityConfig): Promise<CityWe
   }
 
   const data = (await response.json()) as any;
-  if (!data.daily || !data.daily.time || data.daily.time.length < 3) {
+  if (!data.daily || !data.daily.time || data.daily.time.length < 4) {
     throw new Error(`Invalid response structure from Open-Meteo API for ${city.nameUk}`);
   }
 
-  // Index 2 corresponds to the day after tomorrow.
+  // Index 3 corresponds to the third day from today.
   return {
     city,
-    date: data.daily.time[2],
-    tempMax: data.daily.temperature_2m_max[2],
-    tempMin: data.daily.temperature_2m_min[2],
-    precipProb: data.daily.precipitation_probability_max[2],
-    windSpeedMax: data.daily.windspeed_10m_max[2],
-    weatherCode: data.daily.weathercode[2],
+    date: data.daily.time[3],
+    tempMax: data.daily.temperature_2m_max[3],
+    tempMin: data.daily.temperature_2m_min[3],
+    precipProb: data.daily.precipitation_probability_max[3],
+    windSpeedMax: data.daily.windspeed_10m_max[3],
+    weatherCode: data.daily.weathercode[3],
   };
 }
 
