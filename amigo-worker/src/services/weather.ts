@@ -140,7 +140,7 @@ export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]):
     msg += `\n`;
   }
 
-  msg += `ℹ️ <i>Формат: значок погоди | мін-макс температура | макс. ймовірність опадів за день | макс. швидкість вітру</i>\n\n`;
+  msg += `ℹ️ <i>Формат: стан погоди | мін-макс температура | макс. ймовірність опадів | макс. швидкість вітру</i>\n\n`;
   msg += `<i>Джерело даних: Open-Meteo</i>`;
   return msg;
 }
