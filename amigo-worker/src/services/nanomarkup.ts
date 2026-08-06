@@ -209,15 +209,15 @@ function serializeValue(value: unknown, indentLevel: number): string[] {
   }
 
   if (typeof value === "string") {
-    return [quoteNanoString(value)];
+    return [formatInlineScalar(value)];
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
-    return [quoteNanoString(String(value))];
+    return [formatInlineScalar(String(value))];
   }
 
   if (value === null || value === undefined) {
-    return [quoteNanoString("")];
+    return [formatInlineScalar("")];
   }
 
   throw new Error(`Unsupported Nano value type: ${typeof value}`);
@@ -246,11 +246,11 @@ function serializeSequenceItem(value: Value | unknown, indentLevel: number): str
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
-    return [quoteNanoString(String(value))];
+    return [formatInlineScalar(String(value))];
   }
 
   if (value === null || value === undefined) {
-    return [quoteNanoString("")];
+    return [formatInlineScalar("")];
   }
 
   throw new Error(`Unsupported Nano sequence item type: ${typeof value}`);
@@ -289,15 +289,15 @@ function serializeMappingEntry(key: string, value: Value | unknown, indentLevel:
     if (value.includes("\n")) {
       return [`${indent}${key} |`, ...serializeMultiline(value, indentLevel + 1)];
     }
-    return [`${indent}${key} ${quoteNanoString(value)}`];
+    return [`${indent}${key} ${formatInlineScalar(value)}`];
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
-    return [`${indent}${key} ${quoteNanoString(String(value))}`];
+    return [`${indent}${key} ${formatInlineScalar(String(value))}`];
   }
 
   if (value === null || value === undefined) {
-    return [`${indent}${key} ${quoteNanoString("")}`];
+    return [`${indent}${key} ${formatInlineScalar("")}`];
   }
 
   throw new Error(`Unsupported Nano mapping value type: ${typeof value}`);
@@ -323,7 +323,7 @@ function serializeScalarOrMultiline(value: string, indentLevel: number): string[
   if (value.includes("\n")) {
     return [`${spaces(indentLevel)}|`, ...serializeMultiline(value, indentLevel + 1)];
   }
-  return [`${spaces(indentLevel)}${quoteNanoString(value)}`];
+  return [`${spaces(indentLevel)}${formatInlineScalar(value)}`];
 }
 
 function serializeMultiline(value: string, indentLevel: number): string[] {
@@ -340,6 +340,34 @@ function quoteNanoString(value: string): string {
     .replace(/\n/g, "\\n")
     .replace(/\t/g, "\\t");
   return `"${escaped}"`;
+}
+
+function formatInlineScalar(value: string): string {
+  if (value === "") {
+    return quoteNanoString(value);
+  }
+
+  if (needsQuotedScalar(value)) {
+    return quoteNanoString(value);
+  }
+
+  return value;
+}
+
+function needsQuotedScalar(value: string): boolean {
+  if (/^\s|\s$/.test(value)) {
+    return true;
+  }
+
+  if (value === ".." || value === ":" || value === "|") {
+    return true;
+  }
+
+  if (value.startsWith("#")) {
+    return true;
+  }
+
+  return false;
 }
 
 function unescapeQuotedNanoString(value: string): string {
