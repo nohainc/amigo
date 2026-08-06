@@ -131,11 +131,11 @@ export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]):
   }
 
   for (const [country, group] of Object.entries(groups)) {
-    msg += `${group.flag} <b>${country}:</b>\n`;
+    msg += `${group.flag} <b>${country}:</b>\n\n`;
     for (const f of group.list) {
       const emoji = getWeatherEmoji(f.weatherCode);
       const windMs = Math.round(f.windSpeedMax / 3.6);
-      msg += `<b>${f.city.nameUk}:</b>\n${emoji} | ${Math.round(f.tempMin)}-${Math.round(f.tempMax)}°C | ${f.precipProb}% | ${windMs} м/с\n\n`;
+      msg += `    <b>${f.city.nameUk}:</b>\n    ${emoji} | ${Math.round(f.tempMin)}-${Math.round(f.tempMax)}°C | ${f.precipProb}% | ${windMs} м/с\n\n`;
     }
   }
 
