@@ -226,7 +226,10 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
       } catch (feedError: any) {
         feedStatus.status = "error";
         feedStatus.error = feedError?.message || String(feedError);
-        throw feedError;
+        if (feedStatus.error === "SUBREQUESTS_LIMIT_EXCEEDED") {
+          throw feedError;
+        }
+        console.error(`Feed processing failed for ${feed.link}:`, feedError);
       } finally {
         runStatus.feeds.push(feedStatus);
         if (feedStatus.status !== "error") {
