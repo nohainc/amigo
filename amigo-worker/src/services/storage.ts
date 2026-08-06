@@ -106,7 +106,12 @@ export class StorageService {
     const value = await this.kv.get(key);
     if (!value) return null;
     try {
-      return this.normalizeStringArray(this.parseStoredValue(value));
+      const parsed = this.parseStoredValue(value);
+      const normalized = this.normalizeStringArray(parsed);
+      if (this.looksLikeJson(value)) {
+        await this.kv.put(key, stringifyNano(normalized));
+      }
+      return normalized;
     } catch {
       return [];
     }
@@ -122,7 +127,12 @@ export class StorageService {
     const value = await this.kv.get(key);
     if (!value) return [];
     try {
-      return this.normalizeStringArray(this.parseStoredValue(value));
+      const parsed = this.parseStoredValue(value);
+      const normalized = this.normalizeStringArray(parsed);
+      if (this.looksLikeJson(value)) {
+        await this.kv.put(key, stringifyNano(normalized.slice(0, this.recentLimit)));
+      }
+      return normalized;
     } catch {
       return [];
     }
@@ -142,7 +152,14 @@ export class StorageService {
     if (!value) return null;
 
     try {
-      return this.normalizeDailyStatus(this.parseStoredValue(value));
+      const parsed = this.parseStoredValue(value);
+      const normalized = this.normalizeDailyStatus(parsed);
+      if (this.looksLikeJson(value)) {
+        await this.kv.put(this.dailyStatusKey(date), stringifyNano(this.serializeDailyStatus(normalized)), {
+          expirationTtl: 60 * 60 * 24 * 3,
+        });
+      }
+      return normalized;
     } catch {
       return null;
     }
@@ -314,7 +331,16 @@ export class StorageService {
   }
 
   private parseStoredValue(value: string): unknown {
+    const trimmed = value.trimStart();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      return JSON.parse(value);
+    }
     return parseNano(value);
+  }
+
+  private looksLikeJson(value: string): boolean {
+    const trimmed = value.trimStart();
+    return trimmed.startsWith("{") || trimmed.startsWith("[");
   }
 
   private normalizeStringArray(value: unknown): string[] {

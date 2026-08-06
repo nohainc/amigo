@@ -209,15 +209,15 @@ function serializeValue(value: unknown, indentLevel: number): string[] {
   }
 
   if (typeof value === "string") {
-    return [formatScalar(value, indentLevel)];
+    return [quoteNanoString(value)];
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
-    return [formatScalar(String(value), indentLevel)];
+    return [quoteNanoString(String(value))];
   }
 
   if (value === null || value === undefined) {
-    return [formatScalar("", indentLevel)];
+    return [quoteNanoString("")];
   }
 
   throw new Error(`Unsupported Nano value type: ${typeof value}`);
@@ -246,11 +246,11 @@ function serializeSequenceItem(value: Value | unknown, indentLevel: number): str
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
-    return [formatScalar(String(value), indentLevel)];
+    return [quoteNanoString(String(value))];
   }
 
   if (value === null || value === undefined) {
-    return [formatScalar("", indentLevel)];
+    return [quoteNanoString("")];
   }
 
   throw new Error(`Unsupported Nano sequence item type: ${typeof value}`);
@@ -289,15 +289,15 @@ function serializeMappingEntry(key: string, value: Value | unknown, indentLevel:
     if (value.includes("\n")) {
       return [`${indent}${key} |`, ...serializeMultiline(value, indentLevel + 1)];
     }
-    return [`${indent}${key} ${formatScalar(value, indentLevel)}`];
+    return [`${indent}${key} ${quoteNanoString(value)}`];
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
-    return [`${indent}${key} ${formatScalar(String(value), indentLevel)}`];
+    return [`${indent}${key} ${quoteNanoString(String(value))}`];
   }
 
   if (value === null || value === undefined) {
-    return [`${indent}${key} ${formatScalar("", indentLevel)}`];
+    return [`${indent}${key} ${quoteNanoString("")}`];
   }
 
   throw new Error(`Unsupported Nano mapping value type: ${typeof value}`);
@@ -323,17 +323,13 @@ function serializeScalarOrMultiline(value: string, indentLevel: number): string[
   if (value.includes("\n")) {
     return [`${spaces(indentLevel)}|`, ...serializeMultiline(value, indentLevel + 1)];
   }
-  return [formatScalar(value, indentLevel)];
+  return [`${spaces(indentLevel)}${quoteNanoString(value)}`];
 }
 
 function serializeMultiline(value: string, indentLevel: number): string[] {
   const indent = spaces(indentLevel);
   const lines = value.replace(/\n+$/, "").split("\n");
   return lines.map((line) => `${indent}${line}`);
-}
-
-function formatScalar(value: string, indentLevel: number): string {
-  return `${spaces(indentLevel)}${quoteNanoString(value)}`;
 }
 
 function quoteNanoString(value: string): string {

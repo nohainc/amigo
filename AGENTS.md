@@ -126,7 +126,7 @@ A new local day naturally uses a new status key, so morning status starts fresh.
 
 The top-level daily status also includes `sentItems` and `sentPostsByFeed`, recalculated from all saved hourly runs each time the status key is written.
 
-All internal storage reads and writes now use Nano Markup only.
+New writes use Nano Markup, and legacy JSON values are rewritten to Nano Markup when the worker reads them.
 
 ## Subrequest Limits
 
