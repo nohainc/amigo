@@ -40,7 +40,7 @@ export default {
       const storage = new StorageService(env.amigo);
       const date = getLocalDateParts(timezone).date;
       const status = await storage.getDailyStatus(date);
-      return new Response(JSON.stringify(status ?? { date, timezone, runs: [] }, null, 2), {
+      return new Response(JSON.stringify(status ?? { date, timezone, sentItems: 0, sentPostsByFeed: {}, runs: [] }, null, 2), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });

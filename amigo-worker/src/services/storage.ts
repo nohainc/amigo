@@ -34,6 +34,8 @@ export interface DailyBotStatus {
   date: string;
   timezone: string;
   updatedAt: string;
+  sentItems: number;
+  sentPostsByFeed: Record<string, number>;
   runs: HourlyRunStatus[];
 }
 
@@ -169,6 +171,8 @@ export class StorageService {
         date,
         timezone,
         updatedAt: new Date().toISOString(),
+        sentItems: this.calculateDailySentItems(runs),
+        sentPostsByFeed: this.calculateDailySentPostsByFeed(runs),
         runs,
       }),
       { expirationTtl: 60 * 60 * 24 * 3 }
@@ -181,6 +185,31 @@ export class StorageService {
 
   private dailyStatusKey(date: string): string {
     return `status:${date}`;
+  }
+
+  private calculateDailySentItems(runs: HourlyRunStatus[]): number {
+    return runs.reduce((total, run) => total + (run.sentItems || 0), 0);
+  }
+
+  private calculateDailySentPostsByFeed(runs: HourlyRunStatus[]): Record<string, number> {
+    const totals: Record<string, number> = {};
+
+    for (const run of runs) {
+      if (run.sentPostsByFeed && Object.keys(run.sentPostsByFeed).length > 0) {
+        for (const [feed, sentItems] of Object.entries(run.sentPostsByFeed)) {
+          totals[feed] = (totals[feed] || 0) + sentItems;
+        }
+        continue;
+      }
+
+      for (const feedStatus of run.feeds || []) {
+        if (feedStatus.sentItems && feedStatus.sentItems > 0) {
+          totals[feedStatus.feed] = (totals[feedStatus.feed] || 0) + feedStatus.sentItems;
+        }
+      }
+    }
+
+    return totals;
   }
 
   private hash(str: string): string {

@@ -117,11 +117,13 @@ Each hourly run records:
 - processed feed count
 - total active feed count
 - sent item count
-- `sentPostsByFeed`, keyed by feed URL
+- `sentPostsByFeed`, keyed by feed URL, for that run
 - per-feed status and error
 - start/finish timestamps
 
 A new local day naturally uses a new status key, so morning status starts fresh. Status keys expire after 3 days.
+
+The top-level daily status also includes `sentItems` and `sentPostsByFeed`, recalculated from all saved hourly runs each time the status key is written.
 
 ## Subrequest Limits
 
