@@ -42,19 +42,19 @@ export async function fetchCityTomorrowWeather(city: CityConfig): Promise<CityWe
   }
 
   const data = (await response.json()) as any;
-  if (!data.daily || !data.daily.time || data.daily.time.length < 2) {
+  if (!data.daily || !data.daily.time || data.daily.time.length < 3) {
     throw new Error(`Invalid response structure from Open-Meteo API for ${city.nameUk}`);
   }
 
-  // Index 1 corresponds to tomorrow's daily data
+  // Index 2 corresponds to the day after tomorrow.
   return {
     city,
-    date: data.daily.time[1],
-    tempMax: data.daily.temperature_2m_max[1],
-    tempMin: data.daily.temperature_2m_min[1],
-    precipProb: data.daily.precipitation_probability_max[1],
-    windSpeedMax: data.daily.windspeed_10m_max[1],
-    weatherCode: data.daily.weathercode[1],
+    date: data.daily.time[2],
+    tempMax: data.daily.temperature_2m_max[2],
+    tempMin: data.daily.temperature_2m_min[2],
+    precipProb: data.daily.precipitation_probability_max[2],
+    windSpeedMax: data.daily.windspeed_10m_max[2],
+    weatherCode: data.daily.weathercode[2],
   };
 }
 
@@ -108,7 +108,7 @@ export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]):
     "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"
   ];
 
-  // Get tomorrow's date formatted as "Day Month" in Ukrainian
+  // Get target date formatted as "Day Month" in Ukrainian
   const parts = forecasts[0].date.split("-");
   let dateHeader = forecasts[0].date;
   if (parts.length === 3) {
@@ -135,22 +135,12 @@ export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]):
     for (const f of group.list) {
       const emoji = getWeatherEmoji(f.weatherCode);
       const windMs = Math.round(f.windSpeedMax / 3.6);
-      msg += `<b>${f.city.nameUk}:</b> <code>${Math.round(f.tempMin)}°C</code>..<code>${Math.round(f.tempMax)}°C</code>\n${emoji} | <code>${f.precipProb}%</code> | <code>${windMs} м/с</code>\n`;
+      msg += `<b>${f.city.nameUk}:</b> ${emoji} | ${Math.round(f.tempMin)}-${Math.round(f.tempMax)}°C | ${f.precipProb}% | ${windMs} м/с\n`;
     }
     msg += `\n`;
   }
 
-  const wishes = [
-    "Гарного вечора та спокійної ночі! 🇸🇰🇺🇦",
-    "Затишного вечора та спокійного сну! 🇸🇰🇺🇦",
-    "Приємного вечора та мирної ночі! 🇸🇰🇺🇦",
-    "Чудового вечора та гарних снів! 🇸🇰🇺🇦",
-    "Гарного вечірнього відпочинку та тихої ночі! 🇸🇰🇺🇦",
-    "Бажаємо вам затишного вечора та доброї ночі! 🇸🇰🇺🇦"
-  ];
-  const randomWish = wishes[Math.floor(Math.random() * wishes.length)];
-
-  msg += `${randomWish}\n\n`;
+  msg += `ℹ️ <i>Формат: значок погоди | мін-макс температура | макс. ймовірність опадів за день | макс. швидкість вітру</i>\n\n`;
   msg += `<i>Джерело даних: Open-Meteo</i>`;
   return msg;
 }

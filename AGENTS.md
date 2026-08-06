@@ -23,7 +23,7 @@ Amigo is a TypeScript Cloudflare Worker that:
 3. Compares each feed against the last stored snapshot in Cloudflare KV.
 4. Translates non-Ukrainian posts to Ukrainian.
 5. Sends new items to Telegram topics based on `src/topics.nano`.
-6. Sends an evening weather forecast at local 18:00.
+6. Sends a morning weather forecast at local 09:00.
 7. Stores per-hour daily run status in KV and exposes it via `/status`.
 
 Production Worker URL:
@@ -155,7 +155,7 @@ Telegram token and chat ID come from `env.TELEGRAM_TOKEN` and `env.TELEGRAM_CHAT
 
 ## Weather Behavior
 
-Weather runs before feeds at local 18:00. It sends a tomorrow forecast to the weather topic and writes `weather_sent:YYYY-MM-DD`.
+Weather runs before feeds at local 09:00. It sends a day-after-tomorrow forecast to the weather topic and writes `weather_sent:YYYY-MM-DD`.
 
 Be careful when cleaning KV: deleting `weather_sent:*` can allow another weather message for the same day.
 

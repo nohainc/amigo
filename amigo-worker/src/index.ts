@@ -118,8 +118,8 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
   let progressUpdated = false;
 
   try {
-    // 1. Weather check runs FIRST if current local hour is 18:00 (6:00 PM)
-    if (currentLocalHour === 18) {
+    // 1. Weather check runs FIRST if current local hour is 09:00.
+    if (currentLocalHour === 9) {
       try {
         const dateFormatter = new Intl.DateTimeFormat("en-US", {
           timeZone: timezone,
@@ -137,7 +137,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
         const alreadySentWeather = await env.amigo.get(weatherSentKey);
 
         if (!alreadySentWeather) {
-          console.log(`Sending evening weather forecast for tomorrow...`);
+          console.log(`Sending morning weather forecast for the day after tomorrow...`);
           const weatherForecasts = await fetchAllCitiesWeather();
           const weatherMessage = formatMultiCityWeatherMessage(weatherForecasts);
 
@@ -146,7 +146,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
 
           // Mark as sent in KV
           await env.amigo.put(weatherSentKey, "sent");
-          console.log("Tomorrow's weather forecast successfully posted and logged in KV");
+          console.log("Day-after-tomorrow weather forecast successfully posted and logged in KV");
         }
       } catch (weatherErr) {
         console.error("Error executing evening weather forecast:", weatherErr);
