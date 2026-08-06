@@ -56,6 +56,10 @@ export default {
       });
     }
 
+    if (url.pathname === "/weather-test") {
+      return new Response("Not found", { status: 404 });
+    }
+
     return new Response("Amigo Telegram Bot Worker is active. Use /run to execute manual feed pull or /status to inspect today's status.", { status: 200 });
   },
 };
