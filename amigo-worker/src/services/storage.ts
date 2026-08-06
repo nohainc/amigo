@@ -1,3 +1,5 @@
+import { parseNano, stringifyNano } from "./nanomarkup";
+
 export interface KVNamespaceMock {
   get(key: string): Promise<string | null>;
   put(key: string, value: string, options?: KVNamespacePutOptions): Promise<void>;
@@ -68,12 +70,9 @@ export class StorageService {
     const now = Date.now();
 
     if (existing) {
-      try {
-        const lock = JSON.parse(existing);
-        if (typeof lock?.expiresAt === "number" && lock.expiresAt > now) {
-          return null;
-        }
-      } catch {
+      const lock = this.parseStoredValue(existing);
+      const expiresAt = this.toNumber((lock as any)?.expiresAt, 0);
+      if (expiresAt > now) {
         return null;
       }
     }
@@ -81,7 +80,7 @@ export class StorageService {
     const token = crypto.randomUUID();
     await this.kv.put(
       key,
-      JSON.stringify({ token, expiresAt: now + ttlSeconds * 1000 }),
+      stringifyNano({ token, expiresAt: now + ttlSeconds * 1000 }),
       { expirationTtl: ttlSeconds }
     );
     return token;
@@ -93,8 +92,8 @@ export class StorageService {
     if (!existing) return;
 
     try {
-      const lock = JSON.parse(existing);
-      if (lock?.token === token) {
+      const lock = this.parseStoredValue(existing);
+      if ((lock as any)?.token === token) {
         await this.kv.delete(key);
       }
     } catch {
@@ -107,8 +106,7 @@ export class StorageService {
     const value = await this.kv.get(key);
     if (!value) return null;
     try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter((link) => typeof link === "string") : [];
+      return this.normalizeStringArray(this.parseStoredValue(value));
     } catch {
       return [];
     }
@@ -116,7 +114,7 @@ export class StorageService {
 
   async saveFeedSnapshot(feedLink: string, links: string[]): Promise<void> {
     const key = `snapshot:${this.hash(feedLink)}`;
-    await this.kv.put(key, JSON.stringify(this.uniqueLinks(links)));
+    await this.kv.put(key, stringifyNano(this.uniqueLinks(links)));
   }
 
   async getRecentSent(feedLink: string): Promise<string[]> {
@@ -124,8 +122,7 @@ export class StorageService {
     const value = await this.kv.get(key);
     if (!value) return [];
     try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter((link) => typeof link === "string") : [];
+      return this.normalizeStringArray(this.parseStoredValue(value));
     } catch {
       return [];
     }
@@ -133,7 +130,7 @@ export class StorageService {
 
   async saveRecentSent(feedLink: string, links: string[]): Promise<void> {
     const key = `recent:${this.hash(feedLink)}`;
-    await this.kv.put(key, JSON.stringify(this.uniqueLinks(links).slice(0, this.recentLimit)));
+    await this.kv.put(key, stringifyNano(this.uniqueLinks(links).slice(0, this.recentLimit)));
   }
 
   mergeRecentSent(existing: string[], sentNow: string[]): string[] {
@@ -145,8 +142,7 @@ export class StorageService {
     if (!value) return null;
 
     try {
-      const parsed = JSON.parse(value);
-      return parsed && Array.isArray(parsed.runs) ? parsed : null;
+      return this.normalizeDailyStatus(this.parseStoredValue(value));
     } catch {
       return null;
     }
@@ -167,16 +163,22 @@ export class StorageService {
 
     await this.kv.put(
       this.dailyStatusKey(date),
-      JSON.stringify({
-        date,
-        timezone,
-        updatedAt: new Date().toISOString(),
-        sentItems: this.calculateDailySentItems(runs),
-        sentPostsByFeed: this.calculateDailySentPostsByFeed(runs),
-        runs,
-      }),
+      stringifyNano(
+        this.serializeDailyStatus({
+          date,
+          timezone,
+          updatedAt: new Date().toISOString(),
+          sentItems: this.calculateDailySentItems(runs),
+          sentPostsByFeed: this.calculateDailySentPostsByFeed(runs),
+          runs,
+        })
+      ),
       { expirationTtl: 60 * 60 * 24 * 3 }
     );
+  }
+
+  formatDailyStatusNano(status: DailyBotStatus): string {
+    return stringifyNano(this.serializeDailyStatus(status));
   }
 
   private uniqueLinks(links: string[]): string[] {
@@ -185,6 +187,181 @@ export class StorageService {
 
   private dailyStatusKey(date: string): string {
     return `status:${date}`;
+  }
+
+  private serializeDailyStatus(status: DailyBotStatus): Record<string, unknown> {
+    return {
+      date: status.date,
+      timezone: status.timezone,
+      updatedAt: status.updatedAt,
+      sentItems: status.sentItems,
+      sentPostsByFeed: this.sentPostsByFeedToEntries(status.sentPostsByFeed),
+      runs: status.runs.map((run) => this.serializeHourlyRun(run)),
+    };
+  }
+
+  private serializeHourlyRun(run: HourlyRunStatus): Record<string, unknown> {
+    return {
+      hour: run.hour,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+      status: run.status,
+      trigger: run.trigger,
+      processedFeeds: run.processedFeeds,
+      totalFeeds: run.totalFeeds,
+      sentItems: run.sentItems,
+      sentPostsByFeed: this.sentPostsByFeedToEntries(run.sentPostsByFeed),
+      message: run.message,
+      error: run.error,
+      feeds: run.feeds.map((feed) => ({
+        feed: feed.feed,
+        status: feed.status,
+        currentItems: feed.currentItems,
+        newItems: feed.newItems,
+        sentItems: feed.sentItems,
+        error: feed.error,
+      })),
+    };
+  }
+
+  private normalizeDailyStatus(value: unknown): DailyBotStatus {
+    const source = this.normalizeObject(value);
+    return {
+      date: this.asString(source.date),
+      timezone: this.asString(source.timezone),
+      updatedAt: this.asString(source.updatedAt || new Date().toISOString()),
+      sentItems: this.toNumber(source.sentItems, 0),
+      sentPostsByFeed: this.normalizeSentPostsByFeed(source.sentPostsByFeed),
+      runs: this.normalizeRuns(source.runs),
+    };
+  }
+
+  private normalizeRuns(value: unknown): HourlyRunStatus[] {
+    if (!Array.isArray(value)) return [];
+
+    return value.map((runValue) => {
+      const run = this.normalizeObject(runValue);
+      return {
+        hour: this.asString(run.hour),
+        startedAt: this.asString(run.startedAt),
+        finishedAt: run.finishedAt ? this.asString(run.finishedAt) : undefined,
+        status: this.normalizeRunStatus(run.status),
+        trigger: this.normalizeTrigger(run.trigger),
+        processedFeeds: this.toNumber(run.processedFeeds, 0),
+        totalFeeds: this.toNumber(run.totalFeeds, 0),
+        sentItems: this.toNumber(run.sentItems, 0),
+        sentPostsByFeed: this.normalizeSentPostsByFeed(run.sentPostsByFeed),
+        message: this.asString(run.message),
+        error: run.error ? this.asString(run.error) : undefined,
+        feeds: this.normalizeFeedStatuses(run.feeds),
+      };
+    });
+  }
+
+  private normalizeFeedStatuses(value: unknown): FeedRunStatus[] {
+    if (!Array.isArray(value)) return [];
+
+    return value.map((feedValue) => {
+      const feed = this.normalizeObject(feedValue);
+      return {
+        feed: this.asString(feed.feed),
+        status: this.normalizeFeedStatus(feed.status),
+        currentItems: feed.currentItems !== undefined ? this.toNumber(feed.currentItems, 0) : undefined,
+        newItems: feed.newItems !== undefined ? this.toNumber(feed.newItems, 0) : undefined,
+        sentItems: feed.sentItems !== undefined ? this.toNumber(feed.sentItems, 0) : undefined,
+        error: feed.error ? this.asString(feed.error) : undefined,
+      };
+    });
+  }
+
+  private normalizeSentPostsByFeed(value: unknown): Record<string, number> {
+    const totals: Record<string, number> = {};
+
+    if (Array.isArray(value)) {
+      for (const entryValue of value) {
+        const entry = this.normalizeObject(entryValue);
+        const feed = this.asString(entry.feed);
+        if (!feed) continue;
+        totals[feed] = this.toNumber(entry.count ?? entry.sentItems, 0);
+      }
+      return totals;
+    }
+
+    if (this.isPlainObject(value)) {
+      for (const [feed, count] of Object.entries(value)) {
+        totals[feed] = this.toNumber(count, 0);
+      }
+    }
+
+    return totals;
+  }
+
+  private sentPostsByFeedToEntries(value: Record<string, number>): Array<{ feed: string; count: number }> {
+    return Object.keys(value)
+      .sort()
+      .map((feed) => ({
+        feed,
+        count: value[feed],
+      }));
+  }
+
+  private normalizeObject(value: unknown): Record<string, any> {
+    if (this.isPlainObject(value)) {
+      return value;
+    }
+
+    return {};
+  }
+
+  private parseStoredValue(value: string): unknown {
+    return parseNano(value);
+  }
+
+  private normalizeStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.map((item) => this.asString(item)).filter(Boolean);
+  }
+
+  private normalizeRunStatus(value: unknown): BotRunStatus {
+    const status = this.asString(value);
+    if (status === "running" || status === "success" || status === "partial" || status === "skipped" || status === "error") {
+      return status;
+    }
+    return "error";
+  }
+
+  private normalizeFeedStatus(value: unknown): FeedRunStatus["status"] {
+    const status = this.asString(value);
+    if (status === "success" || status === "initialized" || status === "error") {
+      return status;
+    }
+    return "error";
+  }
+
+  private normalizeTrigger(value: unknown): HourlyRunStatus["trigger"] {
+    const trigger = this.asString(value);
+    return trigger === "manual" ? "manual" : "scheduled";
+  }
+
+  private asString(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    return "";
+  }
+
+  private toNumber(value: unknown, fallback: number): number {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    }
+    return fallback;
+  }
+
+  private isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   private calculateDailySentItems(runs: HourlyRunStatus[]): number {

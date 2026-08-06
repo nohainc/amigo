@@ -40,9 +40,19 @@ export default {
       const storage = new StorageService(env.amigo);
       const date = getLocalDateParts(timezone).date;
       const status = await storage.getDailyStatus(date);
-      return new Response(JSON.stringify(status ?? { date, timezone, sentItems: 0, sentPostsByFeed: {}, runs: [] }, null, 2), {
+      const nanoStatus = storage.formatDailyStatusNano(
+        status ?? {
+          date,
+          timezone,
+          updatedAt: new Date().toISOString(),
+          sentItems: 0,
+          sentPostsByFeed: {},
+          runs: [],
+        }
+      );
+      return new Response(nanoStatus, {
         status: 200,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }
 

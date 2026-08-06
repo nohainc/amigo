@@ -190,17 +190,210 @@ function finalizeMultiline(item: any) {
 function parseStringValue(val: string): string {
   val = val.trim();
   if (val.startsWith('"') && val.endsWith('"')) {
-    // Unescape quoted string
-    try {
-      return JSON.parse(val);
-    } catch {
-      // Fallback simple unescape if JSON parsing fails
-      return val.slice(1, -1)
-        .replace(/\\"/g, '"')
-        .replace(/\\n/g, "\n")
-        .replace(/\\t/g, "\t")
-        .replace(/\\\\/g, "\\");
-    }
+    return unescapeQuotedNanoString(val.slice(1, -1));
   }
   return val;
+}
+
+export function stringifyNano(value: unknown): string {
+  return serializeValue(value, 0).join("\n");
+}
+
+function serializeValue(value: unknown, indentLevel: number): string[] {
+  if (Array.isArray(value)) {
+    return serializeSequence(value, indentLevel);
+  }
+
+  if (isPlainObject(value)) {
+    return serializeMapping(value as Mapping, indentLevel);
+  }
+
+  if (typeof value === "string") {
+    return [formatScalar(value, indentLevel)];
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return [formatScalar(String(value), indentLevel)];
+  }
+
+  if (value === null || value === undefined) {
+    return [formatScalar("", indentLevel)];
+  }
+
+  throw new Error(`Unsupported Nano value type: ${typeof value}`);
+}
+
+function serializeSequence(sequence: Sequence, indentLevel: number): string[] {
+  const indent = spaces(indentLevel);
+  const lines = [`${indent}:`];
+  for (const item of sequence) {
+    lines.push(...serializeSequenceItem(item, indentLevel + 1));
+  }
+  return lines;
+}
+
+function serializeSequenceItem(value: Value | unknown, indentLevel: number): string[] {
+  if (Array.isArray(value)) {
+    return serializeSequence(value, indentLevel);
+  }
+
+  if (isPlainObject(value)) {
+    return serializeMapping(value as Mapping, indentLevel);
+  }
+
+  if (typeof value === "string") {
+    return serializeScalarOrMultiline(value, indentLevel);
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return [formatScalar(String(value), indentLevel)];
+  }
+
+  if (value === null || value === undefined) {
+    return [formatScalar("", indentLevel)];
+  }
+
+  throw new Error(`Unsupported Nano sequence item type: ${typeof value}`);
+}
+
+function serializeMapping(mapping: Mapping, indentLevel: number): string[] {
+  const indent = spaces(indentLevel);
+  const keys = Object.keys(mapping);
+  const lines = [`${indent}..`];
+  for (const key of keys) {
+    lines.push(...serializeMappingEntry(key, mapping[key], indentLevel + 1));
+  }
+  return lines;
+}
+
+function serializeMappingEntry(key: string, value: Value | unknown, indentLevel: number): string[] {
+  if (!isValidNanoKey(key)) {
+    throw new Error(`Unsupported Nano key: ${key}`);
+  }
+
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  const indent = spaces(indentLevel);
+
+  if (Array.isArray(value)) {
+    return [`${indent}${key} :`, ...serializeSequenceBody(value, indentLevel + 1)];
+  }
+
+  if (isPlainObject(value)) {
+    return [`${indent}${key} ..`, ...serializeMappingBody(value as Mapping, indentLevel + 1)];
+  }
+
+  if (typeof value === "string") {
+    if (value.includes("\n")) {
+      return [`${indent}${key} |`, ...serializeMultiline(value, indentLevel + 1)];
+    }
+    return [`${indent}${key} ${formatScalar(value, indentLevel)}`];
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return [`${indent}${key} ${formatScalar(String(value), indentLevel)}`];
+  }
+
+  if (value === null || value === undefined) {
+    return [`${indent}${key} ${formatScalar("", indentLevel)}`];
+  }
+
+  throw new Error(`Unsupported Nano mapping value type: ${typeof value}`);
+}
+
+function serializeSequenceBody(sequence: Sequence, indentLevel: number): string[] {
+  const lines: string[] = [];
+  for (const item of sequence) {
+    lines.push(...serializeSequenceItem(item, indentLevel));
+  }
+  return lines;
+}
+
+function serializeMappingBody(mapping: Mapping, indentLevel: number): string[] {
+  const lines: string[] = [];
+  for (const key of Object.keys(mapping)) {
+    lines.push(...serializeMappingEntry(key, mapping[key], indentLevel));
+  }
+  return lines;
+}
+
+function serializeScalarOrMultiline(value: string, indentLevel: number): string[] {
+  if (value.includes("\n")) {
+    return [`${spaces(indentLevel)}|`, ...serializeMultiline(value, indentLevel + 1)];
+  }
+  return [formatScalar(value, indentLevel)];
+}
+
+function serializeMultiline(value: string, indentLevel: number): string[] {
+  const indent = spaces(indentLevel);
+  const lines = value.replace(/\n+$/, "").split("\n");
+  return lines.map((line) => `${indent}${line}`);
+}
+
+function formatScalar(value: string, indentLevel: number): string {
+  return `${spaces(indentLevel)}${quoteNanoString(value)}`;
+}
+
+function quoteNanoString(value: string): string {
+  const escaped = value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/\t/g, "\\t");
+  return `"${escaped}"`;
+}
+
+function unescapeQuotedNanoString(value: string): string {
+  let result = "";
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    if (char !== "\\") {
+      result += char;
+      continue;
+    }
+
+    const next = value[++i];
+    if (next === undefined) {
+      result += "\\";
+      break;
+    }
+
+    switch (next) {
+      case "n":
+        result += "\n";
+        break;
+      case "r":
+        result += "\r";
+        break;
+      case "t":
+        result += "\t";
+        break;
+      case '"':
+        result += '"';
+        break;
+      case "\\":
+        result += "\\";
+        break;
+      default:
+        result += next;
+        break;
+    }
+  }
+
+  return result;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isValidNanoKey(key: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_-]*$/.test(key);
+}
+
+function spaces(indentLevel: number): string {
+  return " ".repeat(indentLevel * 4);
 }

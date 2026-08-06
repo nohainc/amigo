@@ -32,7 +32,7 @@ Production Worker URL:
 
 Important endpoints:
 
-- `/status` returns today's KV status JSON. This is safe to call.
+- `/status` returns today's KV status as Nano Markup text. This is safe to call.
 - `/run` manually runs the bot and can post real Telegram messages. Do not call it casually.
 
 ## Runtime and Deployment
@@ -79,7 +79,7 @@ Current keys:
 
 - `snapshot:[feedHash]`: the list of links currently visible in the feed at the previous check.
 - `recent:[feedHash]`: a capped list of recently sent links, currently limited to 300, used to avoid duplicates if an RSS feed temporarily removes and re-adds a link.
-- `status:YYYY-MM-DD`: today's hourly bot run status, expiring after 3 days.
+- `status:YYYY-MM-DD`: today's hourly bot run status, stored as Nano Markup and expiring after 3 days.
 - `weather_sent:YYYY-MM-DD`: marks weather forecast sent for that local day.
 - `run_lock`: short-lived lock that prevents overlapping runs.
 
@@ -108,7 +108,7 @@ Link validation before posting is currently disabled intentionally to reduce sub
 
 ## Status Tracking
 
-`/status` reads `status:YYYY-MM-DD` for the configured local timezone, default `Europe/Bratislava`.
+`/status` reads `status:YYYY-MM-DD` for the configured local timezone, default `Europe/Bratislava`, and returns Nano Markup text instead of JSON.
 
 Each run record is stored by `startedAt`, so multiple runs in the same hour are preserved:
 
@@ -125,6 +125,8 @@ Each run record is stored by `startedAt`, so multiple runs in the same hour are 
 A new local day naturally uses a new status key, so morning status starts fresh. Status keys expire after 3 days.
 
 The top-level daily status also includes `sentItems` and `sentPostsByFeed`, recalculated from all saved hourly runs each time the status key is written.
+
+All internal storage reads and writes now use Nano Markup only.
 
 ## Subrequest Limits
 

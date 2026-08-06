@@ -83,6 +83,24 @@ function extractLinks(xmlText) {
   return [...new Set(links)];
 }
 
+function stringifyNanoArray(values) {
+  const lines = [":"];
+  for (const value of values) {
+    lines.push(`    ${quoteNanoString(String(value))}`);
+  }
+  return lines.join("\n");
+}
+
+function quoteNanoString(value) {
+  const escaped = value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/\t/g, "\\t");
+  return `"${escaped}"`;
+}
+
 async function fetchFeedLinks(feed) {
   const response = await fetch(feed.link, {
     headers: {
@@ -103,8 +121,8 @@ const puts = [];
 for (const feed of feeds) {
   const links = await fetchFeedLinks(feed);
   const feedHash = hash(feed.link);
-  puts.push({ key: `snapshot:${feedHash}`, value: JSON.stringify(links) });
-  puts.push({ key: `recent:${feedHash}`, value: JSON.stringify([]) });
+  puts.push({ key: `snapshot:${feedHash}`, value: stringifyNanoArray(links) });
+  puts.push({ key: `recent:${feedHash}`, value: stringifyNanoArray([]) });
   console.log(`${feed.link} -> ${links.length} snapshot links`);
 }
 
