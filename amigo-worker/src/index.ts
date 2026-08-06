@@ -35,6 +35,15 @@ export default {
       }
     }
 
+    if (url.pathname === "/weather") {
+      try {
+        await sendWeatherForecast(env, { force: true, markSent: false });
+        return new Response("Weather message sent successfully", { status: 200 });
+      } catch (err: any) {
+        return new Response(`Error sending weather message: ${err.message}`, { status: 500 });
+      }
+    }
+
     if (url.pathname === "/status") {
       const timezone = env.TIMEZONE || "Europe/Bratislava";
       const storage = new StorageService(env.amigo);
@@ -56,13 +65,14 @@ export default {
       });
     }
 
-    if (url.pathname === "/weather-test") {
-      return new Response("Not found", { status: 404 });
-    }
-
-    return new Response("Amigo Telegram Bot Worker is active. Use /run to execute manual feed pull or /status to inspect today's status.", { status: 200 });
+    return new Response("Amigo Telegram Bot Worker is active. Use /run to execute manual feed pull, /weather to send the weather message, or /status to inspect today's status.", { status: 200 });
   },
 };
+
+interface SendWeatherForecastOptions {
+  force?: boolean;
+  markSent?: boolean;
+}
 
 async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): Promise<void> {
   const timezone = env.TIMEZONE || "Europe/Bratislava";
@@ -125,33 +135,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     // 1. Weather check runs FIRST if current local hour is 09:00.
     if (currentLocalHour === 9) {
       try {
-        const dateFormatter = new Intl.DateTimeFormat("en-US", {
-          timeZone: timezone,
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-        });
-        const parts = dateFormatter.formatToParts(new Date());
-        const year = parts.find((p) => p.type === "year")?.value;
-        const month = parts.find((p) => p.type === "month")?.value;
-        const day = parts.find((p) => p.type === "day")?.value;
-        const todayDateStr = `${year}-${month}-${day}`;
-
-        const weatherSentKey = `weather_sent:${todayDateStr}`;
-        const alreadySentWeather = await env.amigo.get(weatherSentKey);
-
-        if (!alreadySentWeather) {
-          console.log(`Sending morning weather forecast for the day after tomorrow...`);
-          const weatherForecasts = await fetchAllCitiesWeather();
-          const weatherMessage = formatMultiCityWeatherMessage(weatherForecasts);
-
-          // Send to weather topic (thread ID 22)
-          await telegram.sendRawMessage("weather", weatherMessage);
-
-          // Mark as sent in KV
-          await env.amigo.put(weatherSentKey, "sent");
-          console.log("Day-after-tomorrow weather forecast successfully posted and logged in KV");
-        }
+        await sendWeatherForecast(env, { telegram, timezone });
       } catch (weatherErr) {
         console.error("Error executing evening weather forecast:", weatherErr);
       }
@@ -279,6 +263,51 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
     await storage.releaseRunLock(runLockToken);
   }
+}
+
+async function sendWeatherForecast(
+  env: Env,
+  options: SendWeatherForecastOptions & { telegram?: TelegramService; timezone?: string } = {}
+): Promise<void> {
+  const timezone = options.timezone || env.TIMEZONE || "Europe/Bratislava";
+  const dateFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = dateFormatter.formatToParts(new Date());
+  const year = parts.find((p) => p.type === "year")?.value;
+  const month = parts.find((p) => p.type === "month")?.value;
+  const day = parts.find((p) => p.type === "day")?.value;
+  const todayDateStr = `${year}-${month}-${day}`;
+  const weatherSentKey = `weather_sent:${todayDateStr}`;
+
+  if (!options.force) {
+    const alreadySentWeather = await env.amigo.get(weatherSentKey);
+    if (alreadySentWeather) {
+      return;
+    }
+  }
+
+  if (!env.TELEGRAM_TOKEN || !env.TELEGRAM_CHAT_ID) {
+    throw new Error("Missing TELEGRAM_TOKEN or TELEGRAM_CHAT_ID bindings");
+  }
+
+  const telegram =
+    options.telegram ||
+    new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, parseNano(topicsNano), env.AI);
+
+  console.log(`Sending morning weather forecast for the day after tomorrow...`);
+  const weatherForecasts = await fetchAllCitiesWeather();
+  const weatherMessage = formatMultiCityWeatherMessage(weatherForecasts);
+  await telegram.sendRawMessage("weather", weatherMessage);
+
+  if (options.markSent !== false) {
+    await env.amigo.put(weatherSentKey, "sent");
+  }
+
+  console.log("Day-after-tomorrow weather forecast successfully posted.");
 }
 
 function getLocalDateParts(timezone: string): { date: string; hour: string } {
