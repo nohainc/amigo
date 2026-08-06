@@ -110,10 +110,11 @@ Link validation before posting is currently disabled intentionally to reduce sub
 
 `/status` reads `status:YYYY-MM-DD` for the configured local timezone, default `Europe/Bratislava`.
 
-Each hourly run records:
+Each run record is stored by `startedAt`, so multiple runs in the same hour are preserved:
 
 - `status`: `running`, `success`, `partial`, `skipped`, or `error`
 - `trigger`: `scheduled` or `manual`
+- `startedAt` as the unique per-run key
 - processed feed count
 - total active feed count
 - sent item count

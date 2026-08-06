@@ -155,7 +155,7 @@ export class StorageService {
   async saveHourlyStatus(date: string, timezone: string, run: HourlyRunStatus): Promise<void> {
     const currentStatus = await this.getDailyStatus(date);
     const runs = currentStatus?.runs ?? [];
-    const runIndex = runs.findIndex((existingRun) => existingRun.hour === run.hour);
+    const runIndex = runs.findIndex((existingRun) => existingRun.startedAt === run.startedAt);
 
     if (runIndex >= 0) {
       runs[runIndex] = run;
@@ -163,7 +163,7 @@ export class StorageService {
       runs.push(run);
     }
 
-    runs.sort((a, b) => a.hour.localeCompare(b.hour));
+    runs.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 
     await this.kv.put(
       this.dailyStatusKey(date),
