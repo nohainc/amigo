@@ -224,8 +224,7 @@ export class StorageService {
       finishedAt: run.finishedAt,
       status: run.status,
       trigger: run.trigger,
-      processedFeeds: `${run.processedFeeds}/${run.totalFeeds}`,
-      totalFeeds: run.totalFeeds,
+      processedFeeds: `${run.processedFeeds} of ${run.totalFeeds}`,
       sentItems: run.sentItems,
       error: run.error,
       feeds: run.feeds.map((feed) => ({
@@ -262,8 +261,7 @@ export class StorageService {
         finishedAt: run.finishedAt ? this.asString(run.finishedAt) : undefined,
         status: this.normalizeRunStatus(run.status),
         trigger: this.normalizeTrigger(run.trigger),
-        processedFeeds: this.toProcessedFeedsCount(run.processedFeeds),
-        totalFeeds: this.toNumber(run.totalFeeds, 0),
+        ...this.parseProcessedFeeds(run.processedFeeds, run.totalFeeds),
         sentItems: this.toNumber(run.sentItems, 0),
         sentPostsByFeed: this.normalizeSentPostsByFeed(run.sentPostsByFeed),
         message: run.message ? this.asString(run.message) : undefined,
@@ -384,11 +382,25 @@ export class StorageService {
     return fallback;
   }
 
-  private toProcessedFeedsCount(value: unknown): number {
-    if (typeof value === "string" && value.includes("/")) {
-      return this.toNumber(value.split("/")[0], 0);
+  private parseProcessedFeeds(value: unknown, totalFallback: unknown): { processedFeeds: number; totalFeeds: number } {
+    if (typeof value === "string") {
+      const match = value.trim().match(/^(\d+)\s*(?:\/|of)\s*(\d+)$/i);
+      if (match) {
+        return {
+          processedFeeds: this.toNumber(match[1], 0),
+          totalFeeds: this.toNumber(match[2], 0),
+        };
+      }
+      return {
+        processedFeeds: this.toNumber(value, 0),
+        totalFeeds: this.toNumber(totalFallback, 0),
+      };
     }
-    return this.toNumber(value, 0);
+
+    return {
+      processedFeeds: this.toNumber(value, 0),
+      totalFeeds: this.toNumber(totalFallback, 0),
+    };
   }
 
   private isPlainObject(value: unknown): value is Record<string, unknown> {
