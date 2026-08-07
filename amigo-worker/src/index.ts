@@ -155,6 +155,8 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
       currentFeedLink = feed.link;
       progressUpdated = false;
       currentSentLinks = [];
+      runStatus.feeds.push(feedStatus);
+      await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
 
       try {
         console.log(`Checking feed: ${feed.link}`);
@@ -208,7 +210,10 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
           currentSentLinks.push(item.link);
           feedStatus.sentItems = currentSentLinks.length;
           runStatus.sentItems++;
-          progressUpdated = true;
+          currentRecentSent = storage.mergeRecentSent(currentRecentSent, [item.link]);
+          await storage.saveRecentSent(feed.link, currentRecentSent);
+          await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
+          progressUpdated = false;
 
           // Keep group sends below Telegram's published flood-control guidance.
           await new Promise((resolve) => setTimeout(resolve, 3500));
@@ -237,7 +242,6 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
         }
         console.error(`Feed processing failed for ${feed.link}:`, feedError);
       } finally {
-        runStatus.feeds.push(feedStatus);
         if (feedStatus.status !== "error") {
           runStatus.processedFeeds++;
         }
