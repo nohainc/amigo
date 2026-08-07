@@ -9,7 +9,7 @@ import { parseNano } from "./services/nanomarkup";
 import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./services/storage";
 import { TelegramService } from "./services/telegram";
 import { checkSubrequestsCapacity, getSubrequestsCount, resetSubrequestsCount, trackedFetch } from "./utils/tracker";
-import worker, { sortByPublishedTime } from "./index";
+import worker, { isFeedActive, sortByPublishedTime } from "./index";
 
 class MemoryKV implements KVNamespaceMock {
   store = new Map<string, string>();
@@ -240,6 +240,16 @@ describe("feed ordering", () => {
     ]);
 
     expect(items.map((item) => item.link)).toEqual(["older", "newer", "undated-first", "undated-second"]);
+  });
+});
+
+describe("feed activation", () => {
+  it("treats only explicit true values as active", () => {
+    expect(isFeedActive({ active: "true" })).toBe(true);
+    expect(isFeedActive({ active: true })).toBe(true);
+    expect(isFeedActive({ active: "false" })).toBe(false);
+    expect(isFeedActive({ active: false })).toBe(false);
+    expect(isFeedActive({})).toBe(false);
   });
 });
 

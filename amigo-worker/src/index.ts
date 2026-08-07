@@ -134,7 +134,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
 
   const feedsConfig: any[] = parseNano(feedsNano);
   const topicsConfig: any[] = parseNano(topicsNano);
-  const activeFeeds = feedsConfig.filter((feed) => feed.active);
+  const activeFeeds = feedsConfig.filter(isFeedActive);
   runStatus.totalFeeds = activeFeeds.length;
 
   const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI, timezone);
@@ -176,7 +176,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
 
     // 2. Feed checks run next. Order is defined in feeds.nano.
     for (const feed of feedsConfig) {
-      if (!feed.active) {
+      if (!isFeedActive(feed)) {
         continue;
       }
 
@@ -371,6 +371,10 @@ export function sortByPublishedTime(items: FeedItem[]): FeedItem[] {
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function isFeedActive(feed: { active?: unknown }): boolean {
+  return feed.active === true || feed.active === "true";
 }
 
 function getLocalDateParts(timezone: string): { date: string; hour: string } {
