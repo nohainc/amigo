@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("./feeds.nano", () => ({ default: "" }));
+vi.mock("./topics.nano", () => ({ default: "" }));
+
 import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./services/storage";
 import { TelegramService } from "./services/telegram";
 import { checkSubrequestsCapacity, getSubrequestsCount, resetSubrequestsCount, trackedFetch } from "./utils/tracker";
+import worker from "./index";
 
 class MemoryKV implements KVNamespaceMock {
   store = new Map<string, string>();
@@ -170,6 +175,33 @@ describe("storage status", () => {
 
     expect(await storage.getFeedSnapshot("https://example.com/feed.xml")).toEqual(["a", "b"]);
     expect(await storage.getRecentSent("https://example.com/feed.xml")).toEqual(["sent", "older"]);
+  });
+});
+
+describe("manual worker runs", () => {
+  it("waits for run completion instead of leaving the work in a short-lived background task", async () => {
+    const kv = new MemoryKV();
+    const waitUntil = vi.fn();
+    const response = await worker.fetch(
+      new Request("https://worker.example/run"),
+      {
+        amigo: kv as any,
+        AI: {},
+        TELEGRAM_TOKEN: "token",
+        TELEGRAM_CHAT_ID: "chat-id",
+        TIMEZONE: "Europe/Bratislava",
+        // This makes the run finish through the normal skipped-status path quickly.
+        START_HOUR: "24",
+        END_HOUR: "24",
+      },
+      { waitUntil } as any
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("Bot run completed");
+    expect(waitUntil).not.toHaveBeenCalled();
+    expect([...kv.store.values()].join("\n")).toContain("trigger manual");
+    expect([...kv.store.values()].join("\n")).toContain("status skipped");
   });
 });
 

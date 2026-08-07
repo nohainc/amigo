@@ -28,8 +28,10 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/run") {
-      ctx.waitUntil(runBot(env, "manual"));
-      return new Response("Bot run started", { status: 202 });
+      // A manual run can take several minutes. waitUntil() is cancelled 30 seconds
+      // after this HTTP response completes, so keep the request alive until it ends.
+      await runBot(env, "manual");
+      return new Response("Bot run completed", { status: 200 });
     }
 
     if (url.pathname === "/weather") {
@@ -109,7 +111,6 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
   const topicsConfig: any[] = parseNano(topicsNano);
   const activeFeeds = feedsConfig.filter((feed) => feed.active);
   runStatus.totalFeeds = activeFeeds.length;
-  await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
 
   const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI, timezone);
   const runLockToken = await storage.acquireRunLock();
@@ -122,11 +123,21 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     return;
   }
 
-  let currentFeedLink = "";
-  let currentFeedSnapshot: string[] = [];
+  await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
+
   let currentRecentSent: string[] = [];
-  let currentSentLinks: string[] = [];
-  let progressUpdated = false;
+  let lastStatusSavedAt = Date.now();
+
+  const saveRunStatus = async () => {
+    // KV permits only one write per second to the same key. This also prevents a
+    // status write problem from interrupting the actual feed delivery.
+    const waitMs = 1000 - (Date.now() - lastStatusSavedAt);
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
+    lastStatusSavedAt = Date.now();
+  };
 
   try {
     // 1. Weather check runs FIRST if current local hour is 09:00.
@@ -152,11 +163,8 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
         sentItems: 0,
       };
 
-      currentFeedLink = feed.link;
-      progressUpdated = false;
-      currentSentLinks = [];
       runStatus.feeds.push(feedStatus);
-      await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
+      await saveRunStatus();
 
       try {
         console.log(`Checking feed: ${feed.link}`);
@@ -165,7 +173,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
         feedStatus.currentItems = currentFeedLinks.length;
 
         const previousSnapshot = await storage.getFeedSnapshot(feed.link);
-        currentFeedSnapshot = currentFeedLinks;
+        const currentFeedSnapshot = currentFeedLinks;
 
         if (previousSnapshot === null) {
           await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
@@ -207,34 +215,18 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
           console.log(`Forwarding feed item: ${item.title} to Telegram topic "${feed.topic}"`);
           await telegram.sendItem(feed.topic, item, feed.language);
         
-          currentSentLinks.push(item.link);
-          feedStatus.sentItems = currentSentLinks.length;
+          feedStatus.sentItems = (feedStatus.sentItems ?? 0) + 1;
           runStatus.sentItems++;
           currentRecentSent = storage.mergeRecentSent(currentRecentSent, [item.link]);
           await storage.saveRecentSent(feed.link, currentRecentSent);
-          await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
-          progressUpdated = false;
+          await saveRunStatus();
 
           // Keep group sends below Telegram's published flood-control guidance.
           await new Promise((resolve) => setTimeout(resolve, 3500));
         }
 
-        if (progressUpdated) {
-          currentRecentSent = storage.mergeRecentSent(currentRecentSent, currentSentLinks);
-          await storage.saveRecentSent(feed.link, currentRecentSent);
-          progressUpdated = false;
-        }
         await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
       } catch (feedError: any) {
-        if (progressUpdated) {
-          try {
-            currentRecentSent = storage.mergeRecentSent(currentRecentSent, currentSentLinks);
-            await storage.saveRecentSent(feed.link, currentRecentSent);
-            progressUpdated = false;
-          } catch (kvErr) {
-            console.error(`Failed to save sent progress for ${feed.link} after feed error:`, kvErr);
-          }
-        }
         feedStatus.status = "error";
         feedStatus.error = feedError?.message || String(feedError);
         if (feedStatus.error === "SUBREQUESTS_LIMIT_EXCEEDED") {
@@ -245,24 +237,12 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
         if (feedStatus.status !== "error") {
           runStatus.processedFeeds++;
         }
-        await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
+        await saveRunStatus();
       }
     }
     runStatus.status = "success";
     runStatus.finishedAt = new Date().toISOString();
   } catch (error: any) {
-    // If limit exceeded, save successfully sent links before stopping.
-    if (progressUpdated && currentFeedLink) {
-      try {
-        console.log(`Saving progress for ${currentFeedLink} before exiting...`);
-        currentRecentSent = storage.mergeRecentSent(currentRecentSent, currentSentLinks);
-        await storage.saveRecentSent(currentFeedLink, currentRecentSent);
-        await storage.saveFeedSnapshot(currentFeedLink, currentFeedSnapshot);
-      } catch (kvErr) {
-        console.error("Failed to save progress on interruption:", kvErr);
-      }
-    }
-
     if (error.message === "SUBREQUESTS_LIMIT_EXCEEDED") {
       console.warn("Cloudflare Worker subrequest limit reached (safety threshold). Gracefully interrupting execution. Remaining feeds will be processed during the next scheduled hour.");
       runStatus.status = "partial";
@@ -273,7 +253,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     runStatus.finishedAt = new Date().toISOString();
     runStatus.error = error?.message || String(error);
   } finally {
-    await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
+    await saveRunStatus();
     await storage.releaseRunLock(runLockToken);
   }
 }
