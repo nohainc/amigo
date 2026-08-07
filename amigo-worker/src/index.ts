@@ -1,5 +1,6 @@
 import feedsNano from "./feeds.nano";
 import topicsNano from "./topics.nano";
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { FeedRunStatus, HourlyRunStatus, StorageService } from "./services/storage";
@@ -16,6 +17,11 @@ export interface Env {
   START_HOUR?: string;
   END_HOUR?: string;
   SUBREQUESTS_LIMIT?: string;
+  BOT_RUN_WORKFLOW: Workflow<ManualRunWorkflowParams>;
+}
+
+interface ManualRunWorkflowParams {
+  trigger: "manual";
 }
 
 export default {
@@ -28,10 +34,16 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/run") {
-      // A manual run can take several minutes. waitUntil() is cancelled 30 seconds
-      // after this HTTP response completes, so keep the request alive until it ends.
-      await runBot(env, "manual");
-      return new Response("Bot run completed", { status: 200 });
+      const instance = await env.BOT_RUN_WORKFLOW.create({
+        params: { trigger: "manual" },
+      });
+      return Response.json(
+        {
+          workflowId: instance.id,
+          statusUrl: `${url.origin}/status?workflowId=${encodeURIComponent(instance.id)}`,
+        },
+        { status: 202 }
+      );
     }
 
     if (url.pathname === "/weather") {
@@ -44,6 +56,19 @@ export default {
     }
 
     if (url.pathname === "/status") {
+      const workflowId = url.searchParams.get("workflowId");
+      if (workflowId) {
+        try {
+          const instance = await env.BOT_RUN_WORKFLOW.get(workflowId);
+          return Response.json({ workflowId, ...(await instance.status()) });
+        } catch (error: any) {
+          return Response.json(
+            { workflowId, status: "unknown", error: error?.message || String(error) },
+            { status: 404 }
+          );
+        }
+      }
+
       const timezone = env.TIMEZONE || "Europe/Bratislava";
       const storage = new StorageService(env.amigo);
       const date = getLocalDateParts(timezone).date;
@@ -73,7 +98,7 @@ interface SendWeatherForecastOptions {
   markSent?: boolean;
 }
 
-async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): Promise<void> {
+async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): Promise<HourlyRunStatus> {
   const timezone = env.TIMEZONE || "Europe/Bratislava";
   const startHour = parseInt(env.START_HOUR || "9", 10);
   const endHour = parseInt(env.END_HOUR || "21", 10);
@@ -98,7 +123,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     runStatus.status = "skipped";
     runStatus.finishedAt = new Date().toISOString();
     await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
-    return;
+    return runStatus;
   }
   resetSubrequestsCount(parsePositiveInteger(env.SUBREQUESTS_LIMIT, 9000));
   console.log(`[${currentLocalHour}:00] Executing amigo bot run...`);
@@ -120,7 +145,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     runStatus.status = "skipped";
     runStatus.finishedAt = new Date().toISOString();
     await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
-    return;
+    return runStatus;
   }
 
   await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
@@ -255,6 +280,29 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
   } finally {
     await saveRunStatus();
     await storage.releaseRunLock(runLockToken);
+  }
+
+  return runStatus;
+}
+
+export class ManualBotRunWorkflow extends WorkflowEntrypoint<Env, ManualRunWorkflowParams> {
+  async run(event: Readonly<WorkflowEvent<ManualRunWorkflowParams>>, step: WorkflowStep) {
+    return step.do(
+      "process manual feed run",
+      {
+        retries: { limit: 2, delay: "1 minute", backoff: "exponential" },
+        timeout: "15 minutes",
+      },
+      async () => {
+        const run = await runBot(this.env, event.payload.trigger);
+        return {
+          runStatus: run.status,
+          processedFeeds: run.processedFeeds,
+          totalFeeds: run.totalFeeds,
+          sentItems: run.sentItems,
+        };
+      }
+    );
   }
 }
 

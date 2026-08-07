@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./feeds.nano", () => ({ default: "" }));
 vi.mock("./topics.nano", () => ({ default: "" }));
+vi.mock("cloudflare:workers", () => ({ WorkflowEntrypoint: class {} }));
 
 import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
@@ -243,9 +244,9 @@ describe("feed ordering", () => {
 });
 
 describe("manual worker runs", () => {
-  it("waits for run completion instead of leaving the work in a short-lived background task", async () => {
+  it("starts a durable workflow that continues after the request ends", async () => {
     const kv = new MemoryKV();
-    const waitUntil = vi.fn();
+    const create = vi.fn(async () => ({ id: "manual-run-123" }));
     const response = await worker.fetch(
       new Request("https://worker.example/run"),
       {
@@ -254,18 +255,42 @@ describe("manual worker runs", () => {
         TELEGRAM_TOKEN: "token",
         TELEGRAM_CHAT_ID: "chat-id",
         TIMEZONE: "Europe/Bratislava",
-        // This makes the run finish through the normal skipped-status path quickly.
-        START_HOUR: "24",
-        END_HOUR: "24",
+        BOT_RUN_WORKFLOW: { create } as any,
       },
-      { waitUntil } as any
+      { waitUntil: vi.fn() } as any
+    );
+
+    expect(response.status).toBe(202);
+    expect(create).toHaveBeenCalledWith({ params: { trigger: "manual" } });
+    expect(await response.json()).toEqual({
+      workflowId: "manual-run-123",
+      statusUrl: "https://worker.example/status?workflowId=manual-run-123",
+    });
+  });
+
+  it("returns the Cloudflare workflow state for a manual run", async () => {
+    const get = vi.fn(async () => ({
+      status: async () => ({ status: "complete", output: { runStatus: "success", sentItems: 11 } }),
+    }));
+    const response = await worker.fetch(
+      new Request("https://worker.example/status?workflowId=manual-run-123"),
+      {
+        amigo: new MemoryKV() as any,
+        AI: {},
+        TELEGRAM_TOKEN: "token",
+        TELEGRAM_CHAT_ID: "chat-id",
+        BOT_RUN_WORKFLOW: { get } as any,
+      },
+      { waitUntil: vi.fn() } as any
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("Bot run completed");
-    expect(waitUntil).not.toHaveBeenCalled();
-    expect([...kv.store.values()].join("\n")).toContain("trigger manual");
-    expect([...kv.store.values()].join("\n")).toContain("status skipped");
+    expect(get).toHaveBeenCalledWith("manual-run-123");
+    expect(await response.json()).toEqual({
+      workflowId: "manual-run-123",
+      status: "complete",
+      output: { runStatus: "success", sentItems: 11 },
+    });
   });
 });
 
