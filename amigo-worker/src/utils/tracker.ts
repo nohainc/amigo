@@ -1,8 +1,9 @@
 let subrequestsCount = 0;
-const SUBREQUESTS_LIMIT = 42; // Safety margin (Cloudflare limit is 50)
+let subrequestsLimit = 9000;
 
-export function resetSubrequestsCount(): void {
+export function resetSubrequestsCount(limit = 9000): void {
   subrequestsCount = 0;
+  subrequestsLimit = limit;
 }
 
 export function getSubrequestsCount(): number {
@@ -10,7 +11,7 @@ export function getSubrequestsCount(): number {
 }
 
 export function checkSubrequestsCapacity(required = 1): void {
-  if (subrequestsCount + required > SUBREQUESTS_LIMIT) {
+  if (subrequestsCount + required > subrequestsLimit) {
     throw new Error("SUBREQUESTS_LIMIT_EXCEEDED");
   }
 }

@@ -22,9 +22,9 @@ TIMEZONE = "Europe/Bratislava"
 # Active hours limit: only send messages during these hours (local time)
 START_HOUR = "9"
 END_HOUR = "21"
+SUBREQUESTS_LIMIT = "9000"
 
 [[rules]]
 globs = ["**/*.nano"]
 type = "Text"
 fallthrough = true
-

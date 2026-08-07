@@ -15,6 +15,7 @@ export interface Env {
   TIMEZONE?: string;
   START_HOUR?: string;
   END_HOUR?: string;
+  SUBREQUESTS_LIMIT?: string;
 }
 
 export default {
@@ -101,7 +102,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
     return;
   }
-  resetSubrequestsCount();
+  resetSubrequestsCount(parsePositiveInteger(env.SUBREQUESTS_LIMIT, 9000));
   console.log(`[${currentLocalHour}:00] Executing amigo bot run...`);
 
   if (!env.TELEGRAM_TOKEN || !env.TELEGRAM_CHAT_ID) {
@@ -328,6 +329,11 @@ function sortByPublishedTime(items: FeedItem[]): FeedItem[] {
       return a.index - b.index;
     })
     .map(({ item }) => item);
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function getLocalDateParts(timezone: string): { date: string; hour: string } {
