@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseFeed } from "./services/feed";
+import { parseNano } from "./services/nanomarkup";
 import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./services/storage";
 import { TelegramService } from "./services/telegram";
 import { checkSubrequestsCapacity, getSubrequestsCount, resetSubrequestsCount, trackedFetch } from "./utils/tracker";
@@ -60,6 +61,34 @@ describe("feed parsing", () => {
     expect(atomItem.publishedAt).toBe("2026-08-07T09:45:00.000Z");
     expect(atomItem.publishedTimestamp).toBe(Date.parse("2026-08-07T09:45:00Z"));
   });
+
+  it("falls back cleanly when a feed item has no valid publish date", async () => {
+    const rssXml = `<?xml version="1.0"?>
+      <rss><channel>
+        <item>
+          <title>No date</title>
+          <link>https://example.com/no-date</link>
+          <pubDate>not a real date</pubDate>
+        </item>
+      </channel></rss>`;
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(rssXml, { status: 200 })));
+    resetSubrequestsCount();
+
+    const [item] = await parseFeed("https://example.com/rss.xml");
+
+    expect(item.publishedAt).toBeUndefined();
+    expect(item.publishedTimestamp).toBeUndefined();
+  });
+
+  it("throws a useful error when a feed fetch fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("missing", { status: 404, statusText: "Not Found" })));
+    resetSubrequestsCount();
+
+    await expect(parseFeed("https://example.com/missing.xml")).rejects.toThrow(
+      "Failed to fetch feed from https://example.com/missing.xml: Not Found"
+    );
+  });
 });
 
 describe("storage status", () => {
@@ -101,6 +130,46 @@ describe("storage status", () => {
       "duplicate",
       "old",
     ]);
+  });
+
+  it("round-trips old processedFeeds slash format", async () => {
+    const kv = new MemoryKV();
+    kv.store.set(
+      "status:2026-08-07",
+      `..
+    date 2026-08-07
+    timezone Europe/Bratislava
+    updatedAt 2026-08-07T09:00:00.000Z
+    sentItems 0
+    sentPostsByFeed:
+    runs:
+        ..
+            hour 11
+            startedAt 2026-08-07T09:00:00.000Z
+            status running
+            trigger scheduled
+            processedFeeds 10/11
+            totalFeeds 11
+            sentItems 0
+            feeds:`
+    );
+
+    const storage = new StorageService(kv as any);
+    const status = await storage.getDailyStatus("2026-08-07");
+
+    expect(status?.runs[0].processedFeeds).toBe(10);
+    expect(status?.runs[0].totalFeeds).toBe(11);
+  });
+
+  it("stores snapshots and recent links as unique Nano arrays", async () => {
+    const kv = new MemoryKV();
+    const storage = new StorageService(kv as any);
+
+    await storage.saveFeedSnapshot("https://example.com/feed.xml", ["a", "a", "", "b"]);
+    await storage.saveRecentSent("https://example.com/feed.xml", ["sent", "sent", "older"]);
+
+    expect(await storage.getFeedSnapshot("https://example.com/feed.xml")).toEqual(["a", "b"]);
+    expect(await storage.getRecentSent("https://example.com/feed.xml")).toEqual(["sent", "older"]);
   });
 });
 
@@ -160,5 +229,88 @@ describe("telegram sender", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual(
       JSON.parse(fetchMock.mock.calls[1][1].body as string)
     );
+  });
+
+  it("formats feed posts with categories, links, translation link, and local publish time", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    resetSubrequestsCount();
+
+    const telegram = new TelegramService("token", "chat-id", [{ name_en: "news", id: "1" }], undefined, "Europe/Bratislava");
+
+    await telegram.sendItem(
+      "news",
+      {
+        title: "Original title",
+        link: "https://www.example.sk/post",
+        description: "Summary",
+        categories: ["Long Category", "News"],
+        publishedAt: "2026-08-07T08:30:00.000Z",
+        translatedDescription: "Translated summary",
+      },
+      "sk"
+    );
+
+    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(firstCall[1].body as string);
+
+    expect(body.message_thread_id).toBe(1);
+    expect(body.text).toContain("Long Category | News\n\n");
+    expect(body.text).toContain("Original title\n\nTranslated summary");
+    expect(body.text).toContain('<a href="https://www.example.sk/post">example.sk</a> | <a href="http://translate.google.com/translate?');
+    expect(body.text).toContain("\n07.08.2026 10:30");
+  });
+
+  it("routes news posts to a more specific topic when a category matches", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    resetSubrequestsCount();
+
+    const telegram = new TelegramService("token", "chat-id", [
+      { name_en: "news", id: "1" },
+      { name_en: "sport", id: "7", tags: ["football"] },
+    ]);
+
+    await telegram.sendItem(
+      "news",
+      {
+        title: "Match",
+        link: "https://example.com/match",
+        categories: ["football"],
+      },
+      "uk"
+    );
+
+    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(firstCall[1].body as string);
+    expect(body.message_thread_id).toBe(7);
+  });
+
+  it("does not retry non-rate-limit Telegram failures", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: false, description: "Bad Request" }), { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+    resetSubrequestsCount();
+
+    const telegram = new TelegramService("token", "chat-id", [{ name_en: "news", id: "1" }]);
+
+    await expect(telegram.sendRawMessage("news", "hello")).rejects.toThrow("Telegram send raw failed (400)");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("nanomarkup", () => {
+  it("parses nested status-like Nano records", () => {
+    const parsed = parseNano(`..
+    runs:
+        ..
+            hour 11
+            status running
+            feeds:
+                ..
+                    feed https://example.com/feed.xml
+                    sentItems 2`);
+
+    expect(parsed.runs[0].hour).toBe("11");
+    expect(parsed.runs[0].feeds[0].sentItems).toBe("2");
   });
 });
