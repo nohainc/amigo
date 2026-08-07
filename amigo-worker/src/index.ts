@@ -28,12 +28,8 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/run") {
-      try {
-        await runBot(env, "manual");
-        return new Response("Bot run completed successfully", { status: 200 });
-      } catch (err: any) {
-        return new Response(`Error running bot: ${err.message}`, { status: 500 });
-      }
+      ctx.waitUntil(runBot(env, "manual"));
+      return new Response("Bot run started", { status: 202 });
     }
 
     if (url.pathname === "/weather") {
@@ -225,6 +221,15 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
         }
         await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
       } catch (feedError: any) {
+        if (progressUpdated) {
+          try {
+            currentRecentSent = storage.mergeRecentSent(currentRecentSent, currentSentLinks);
+            await storage.saveRecentSent(feed.link, currentRecentSent);
+            progressUpdated = false;
+          } catch (kvErr) {
+            console.error(`Failed to save sent progress for ${feed.link} after feed error:`, kvErr);
+          }
+        }
         feedStatus.status = "error";
         feedStatus.error = feedError?.message || String(feedError);
         if (feedStatus.error === "SUBREQUESTS_LIMIT_EXCEEDED") {
