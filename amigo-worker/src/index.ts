@@ -303,7 +303,7 @@ async function sendWeatherForecast(
   console.log("Third-day weather forecast successfully posted.");
 }
 
-function sortByPublishedTime(items: FeedItem[]): FeedItem[] {
+export function sortByPublishedTime(items: FeedItem[]): FeedItem[] {
   return items
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {

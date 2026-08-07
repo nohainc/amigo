@@ -8,7 +8,7 @@ import { parseNano } from "./services/nanomarkup";
 import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./services/storage";
 import { TelegramService } from "./services/telegram";
 import { checkSubrequestsCapacity, getSubrequestsCount, resetSubrequestsCount, trackedFetch } from "./utils/tracker";
-import worker from "./index";
+import worker, { sortByPublishedTime } from "./index";
 
 class MemoryKV implements KVNamespaceMock {
   store = new Map<string, string>();
@@ -176,6 +176,70 @@ describe("storage status", () => {
     expect(await storage.getFeedSnapshot("https://example.com/feed.xml")).toEqual(["a", "b"]);
     expect(await storage.getRecentSent("https://example.com/feed.xml")).toEqual(["sent", "older"]);
   });
+
+  it("keeps only the most recent 300 sent links", async () => {
+    const storage = new StorageService(new MemoryKV() as any);
+    const links = Array.from({ length: 301 }, (_, index) => `https://example.com/${index}`);
+
+    await storage.saveRecentSent("https://example.com/feed.xml", links);
+
+    const recent = await storage.getRecentSent("https://example.com/feed.xml");
+    expect(recent).toHaveLength(300);
+    expect(recent[0]).toBe("https://example.com/0");
+    expect(recent).not.toContain("https://example.com/300");
+  });
+
+  it("replaces a status update for the same run and recalculates daily totals", async () => {
+    const storage = new StorageService(new MemoryKV() as any);
+    const firstRun: HourlyRunStatus = {
+      hour: "11",
+      startedAt: "2026-08-07T09:00:00.000Z",
+      status: "running",
+      trigger: "scheduled",
+      processedFeeds: 1,
+      totalFeeds: 2,
+      sentItems: 1,
+      feeds: [{ feed: "https://example.com/a", status: "success", sentItems: 1 }],
+    };
+    const updatedRun = { ...firstRun, status: "success" as const, processedFeeds: 2, sentItems: 3 };
+
+    await storage.saveHourlyStatus("2026-08-07", "Europe/Bratislava", firstRun);
+    await storage.saveHourlyStatus("2026-08-07", "Europe/Bratislava", updatedRun);
+    const status = await storage.getDailyStatus("2026-08-07");
+
+    expect(status?.runs).toHaveLength(1);
+    expect(status?.runs[0].status).toBe("success");
+    expect(status?.sentItems).toBe(3);
+  });
+
+  it("releases a lock only for its owner and permits a lock after expiry", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-07T09:00:00.000Z"));
+    const storage = new StorageService(new MemoryKV() as any);
+    const firstToken = await storage.acquireRunLock(60);
+
+    expect(firstToken).toBeTruthy();
+    expect(await storage.acquireRunLock(60)).toBeNull();
+    await storage.releaseRunLock("not-the-owner");
+    expect(await storage.acquireRunLock(60)).toBeNull();
+
+    vi.advanceTimersByTime(60_001);
+    expect(await storage.acquireRunLock(60)).toBeTruthy();
+    vi.useRealTimers();
+  });
+});
+
+describe("feed ordering", () => {
+  it("sends dated items oldest first and leaves undated items in their original order last", () => {
+    const items = sortByPublishedTime([
+      { title: "newer", link: "newer", publishedTimestamp: 30 },
+      { title: "undated first", link: "undated-first" },
+      { title: "older", link: "older", publishedTimestamp: 10 },
+      { title: "undated second", link: "undated-second" },
+    ]);
+
+    expect(items.map((item) => item.link)).toEqual(["older", "newer", "undated-first", "undated-second"]);
+  });
 });
 
 describe("manual worker runs", () => {
@@ -291,6 +355,28 @@ describe("telegram sender", () => {
     expect(body.text).toContain("Original title\n\nTranslated summary");
     expect(body.text).toContain('<a href="https://www.example.sk/post">example.sk</a> | <a href="http://translate.google.com/translate?');
     expect(body.text).toContain("\n07.08.2026 10:30");
+  });
+
+  it("escapes translated content and URL attributes before sending Telegram HTML", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    resetSubrequestsCount();
+
+    const telegram = new TelegramService("token", "chat-id", [{ name_en: "news", id: "1" }]);
+    await telegram.sendItem(
+      "news",
+      {
+        title: "Title",
+        link: 'https://example.com/?q="unsafe"',
+        translatedTitle: "<b>Not markup</b>",
+      },
+      "uk"
+    );
+
+    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(firstCall[1].body as string);
+    expect(body.text).toContain("&lt;b&gt;Not markup&lt;/b&gt;");
+    expect(body.text).toContain('href="https://example.com/?q=&quot;unsafe&quot;"');
   });
 
   it("routes news posts to a more specific topic when a category matches", async () => {

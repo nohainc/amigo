@@ -178,12 +178,14 @@ export class TelegramService {
     }
 
     // 2. Title without link
-    let title = item.translatedTitle || this.cleanText(item.title);
+    let title = this.cleanText(item.translatedTitle || item.title);
 
     // 3. Summary (if present)
     let summary = "";
     if (item.description) {
-      summary = item.translatedDescription || this.cleanDescription(item.description);
+      summary = item.translatedDescription
+        ? this.cleanText(item.translatedDescription)
+        : this.cleanDescription(item.description);
     }
 
     // Translate summary if needed, or translate title if summary is missing (only if not already batch-translated)
@@ -191,13 +193,13 @@ export class TelegramService {
       const srcLang = lang || "sk";
       if (summary.trim()) {
         try {
-          summary = await this.translateText(summary, srcLang);
+          summary = this.cleanText(await this.translateText(summary, srcLang));
         } catch (err) {
           console.error("Translation error (summary):", err);
         }
       } else {
         try {
-          title = await this.translateText(title, srcLang);
+          title = this.cleanText(await this.translateText(title, srcLang));
         } catch (err) {
           console.error("Translation error (title):", err);
         }
@@ -218,14 +220,14 @@ export class TelegramService {
       domain = item.link;
     }
 
-    let linksLine = `<a href="${item.link}">${domain}</a>`;
+    let linksLine = `<a href="${this.escapeHtmlAttribute(item.link)}">${this.cleanText(domain)}</a>`;
 
     if (!isUkrainian && isWeb) {
       const srcLang = lang || "sk";
       const translateUrl = `http://translate.google.com/translate?sl=${srcLang}&tl=uk&u=${encodeURIComponent(
         item.link
       )}&client=webapp/`;
-      linksLine += ` | <a href="${translateUrl}">Переклад</a>`;
+      linksLine += ` | <a href="${this.escapeHtmlAttribute(translateUrl)}">Переклад</a>`;
     }
 
     message += `\n\n${linksLine}`;
@@ -292,6 +294,10 @@ export class TelegramService {
     let cleaned = text.replace(/<[^>]*>/g, "");
     // 2. Escape HTML special characters for Telegram compatibility
     return this.cleanText(cleaned);
+  }
+
+  private escapeHtmlAttribute(value: string): string {
+    return this.cleanText(value).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
   private async translateText(text: string, srcLang: string): Promise<string> {
