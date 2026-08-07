@@ -12,6 +12,15 @@ export interface FeedItem {
   translatedDescription?: string;
 }
 
+interface TelegramErrorResponse {
+  ok?: boolean;
+  error_code?: number;
+  description?: string;
+  parameters?: {
+    retry_after?: number;
+  };
+}
+
 export class TelegramService {
   private token: string;
   private chatId: string;
@@ -87,23 +96,12 @@ export class TelegramService {
     const message = await this.formatMessage(item, lang);
     const url = `https://api.telegram.org/bot${this.token}/sendMessage`;
 
-    const response = await trackedFetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        chat_id: this.chatId,
-        message_thread_id: threadId,
-        parse_mode: "HTML",
-        text: message,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Telegram send failed (${response.status}): ${errorText}`);
-    }
+    await this.sendMessageWithRetry(url, {
+      chat_id: this.chatId,
+      message_thread_id: threadId,
+      parse_mode: "HTML",
+      text: message,
+    }, "Telegram send failed");
   }
   /**
    * Sends a raw HTML formatted string to the Telegram chat thread.
@@ -112,23 +110,61 @@ export class TelegramService {
     const threadId = this.topicThreadMap[topic] || 0;
     const url = `https://api.telegram.org/bot${this.token}/sendMessage`;
 
-    const response = await trackedFetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        chat_id: this.chatId,
-        message_thread_id: threadId,
-        parse_mode: "HTML",
-        text: text,
-      }),
-    });
+    await this.sendMessageWithRetry(url, {
+      chat_id: this.chatId,
+      message_thread_id: threadId,
+      parse_mode: "HTML",
+      text: text,
+    }, "Telegram send raw failed");
+  }
 
-    if (!response.ok) {
+  private async sendMessageWithRetry(url: string, body: Record<string, unknown>, errorPrefix: string): Promise<void> {
+    const maxAttempts = 5;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const response = await trackedFetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (response.ok) {
+        return;
+      }
+
       const errorText = await response.text();
-      throw new Error(`Telegram send raw failed (${response.status}): ${errorText}`);
+      const retryAfter = this.getRetryAfterSeconds(response.status, errorText);
+      if (retryAfter && attempt < maxAttempts) {
+        const delayMs = (retryAfter + 1) * 1000;
+        console.warn(`${errorPrefix} (${response.status}), retrying after ${retryAfter}s (attempt ${attempt}/${maxAttempts}).`);
+        await this.sleep(delayMs);
+        continue;
+      }
+
+      throw new Error(`${errorPrefix} (${response.status}): ${errorText}`);
     }
+
+    throw new Error(`${errorPrefix}: retry attempts exhausted`);
+  }
+
+  private getRetryAfterSeconds(status: number, errorText: string): number | null {
+    if (status !== 429) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(errorText) as TelegramErrorResponse;
+      const retryAfter = parsed.parameters?.retry_after;
+      return typeof retryAfter === "number" && retryAfter > 0 ? retryAfter : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private async formatMessage(item: FeedItem, lang: string): Promise<string> {

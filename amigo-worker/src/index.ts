@@ -210,8 +210,8 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
           runStatus.sentItems++;
           progressUpdated = true;
 
-          // Small sleep to avoid hitting limits if we send multiple entries (2 seconds sleep)
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          // Keep group sends below Telegram's published flood-control guidance.
+          await new Promise((resolve) => setTimeout(resolve, 3500));
         }
 
         if (progressUpdated) {
