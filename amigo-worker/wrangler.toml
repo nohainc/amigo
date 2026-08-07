@@ -28,3 +28,7 @@ SUBREQUESTS_LIMIT = "9000"
 globs = ["**/*.nano"]
 type = "Text"
 fallthrough = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
