@@ -39,11 +39,15 @@ export async function parseFeed(url: string): Promise<FeedItem[]> {
           : [typeof item.category === "string" ? item.category : item.category["#text"] || ""];
       }
 
+      const published = parsePublishedDate(item.pubDate || item["dc:date"] || item.date);
+
       items.push({
         title: typeof item.title === "string" ? item.title : item.title?.["#text"] || "Untitled",
         link: item.link || "",
         description: item.description || "",
         categories: categories.filter(Boolean),
+        publishedAt: published?.publishedAt,
+        publishedTimestamp: published?.publishedTimestamp,
       });
     }
   } 
@@ -73,16 +77,33 @@ export async function parseFeed(url: string): Promise<FeedItem[]> {
           : [entry.category["@_term"] || ""];
       }
 
+      const published = parsePublishedDate(entry.published || entry.updated || entry["dc:date"]);
+
       items.push({
         title: typeof entry.title === "string" ? entry.title : entry.title?.["#text"] || "Untitled",
         link: link,
         description: entry.summary || entry.content || "",
         categories: categories.filter(Boolean),
+        publishedAt: published?.publishedAt,
+        publishedTimestamp: published?.publishedTimestamp,
       });
     }
   }
 
   return items;
+}
+
+function parsePublishedDate(value: unknown): { publishedAt: string; publishedTimestamp: number } | undefined {
+  const rawDate = typeof value === "string" ? value : (value as any)?.["#text"];
+  if (!rawDate) return undefined;
+
+  const timestamp = Date.parse(rawDate);
+  if (!Number.isFinite(timestamp)) return undefined;
+
+  return {
+    publishedAt: new Date(timestamp).toISOString(),
+    publishedTimestamp: timestamp,
+  };
 }
 
 export async function isLinkValid(url: string): Promise<boolean> {
@@ -108,4 +129,3 @@ export async function isLinkValid(url: string): Promise<boolean> {
     }
   }
 }
-

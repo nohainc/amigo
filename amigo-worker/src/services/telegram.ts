@@ -6,6 +6,8 @@ export interface FeedItem {
   link: string;
   description?: string;
   categories?: string[];
+  publishedAt?: string;
+  publishedTimestamp?: number;
   translatedTitle?: string;
   translatedDescription?: string;
 }
@@ -14,12 +16,14 @@ export class TelegramService {
   private token: string;
   private chatId: string;
   private ai?: any;
+  private timezone: string;
   private topicThreadMap: Record<string, number>;
 
-  constructor(token: string, chatId: string, topicsConfig: any[], ai?: any) {
+  constructor(token: string, chatId: string, topicsConfig: any[], ai?: any, timezone = "Europe/Bratislava") {
     this.token = token;
     this.chatId = chatId;
     this.ai = ai;
+    this.timezone = timezone;
     
     // Dynamically build map of topic name/tag -> Telegram thread ID from config
     this.topicThreadMap = {};
@@ -190,7 +194,37 @@ export class TelegramService {
 
     message += `\n\n${linksLine}`;
 
+    const publishedTime = this.formatPublishedTime(item);
+    if (publishedTime) {
+      message += `\n${publishedTime}`;
+    }
+
     return message;
+  }
+
+  private formatPublishedTime(item: FeedItem): string {
+    const date = item.publishedTimestamp !== undefined
+      ? new Date(item.publishedTimestamp)
+      : item.publishedAt
+      ? new Date(item.publishedAt)
+      : null;
+
+    if (!date || Number.isNaN(date.getTime())) {
+      return "";
+    }
+
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: this.timezone,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(date);
+
+    const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
+    return `${value("day")}.${value("month")}.${value("year")} ${value("hour")}:${value("minute")}`;
   }
 
   private isLikelyWebsite(url: string): boolean {

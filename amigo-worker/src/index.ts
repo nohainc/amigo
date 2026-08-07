@@ -3,7 +3,7 @@ import topicsNano from "./topics.nano";
 import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { FeedRunStatus, HourlyRunStatus, StorageService } from "./services/storage";
-import { TelegramService } from "./services/telegram";
+import { FeedItem, TelegramService } from "./services/telegram";
 import { fetchAllCitiesWeather, formatMultiCityWeatherMessage } from "./services/weather";
 import { resetSubrequestsCount } from "./utils/tracker";
 
@@ -114,7 +114,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
   runStatus.totalFeeds = activeFeeds.length;
   await storage.saveHourlyStatus(localDateParts.date, timezone, runStatus);
 
-  const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI);
+  const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI, timezone);
   const runLockToken = await storage.acquireRunLock();
 
   if (!runLockToken) {
@@ -198,9 +198,9 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
         const isUkrainian = feed.language === "uk";
 
         // Batch translate foreign feeds
-        let processedItems = newItems;
+        let processedItems = sortByPublishedTime(newItems);
         if (!isUkrainian) {
-          processedItems = await telegram.batchTranslate(newItems, feed.language || "sk");
+          processedItems = await telegram.batchTranslate(processedItems, feed.language || "sk");
         }
 
         // Send items to Telegram
@@ -299,7 +299,7 @@ async function sendWeatherForecast(
 
   const telegram =
     options.telegram ||
-    new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, parseNano(topicsNano), env.AI);
+    new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, parseNano(topicsNano), env.AI, timezone);
 
   console.log(`Sending morning weather forecast for the third day from today...`);
   const weatherForecasts = await fetchAllCitiesWeather();
@@ -311,6 +311,23 @@ async function sendWeatherForecast(
   }
 
   console.log("Third-day weather forecast successfully posted.");
+}
+
+function sortByPublishedTime(items: FeedItem[]): FeedItem[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const aTime = a.item.publishedTimestamp;
+      const bTime = b.item.publishedTimestamp;
+
+      if (aTime !== undefined && bTime !== undefined) {
+        return aTime - bTime;
+      }
+      if (aTime !== undefined) return -1;
+      if (bTime !== undefined) return 1;
+      return a.index - b.index;
+    })
+    .map(({ item }) => item);
 }
 
 function getLocalDateParts(timezone: string): { date: string; hour: string } {
