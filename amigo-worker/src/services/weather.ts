@@ -59,8 +59,30 @@ export async function fetchCityTomorrowWeather(city: CityConfig): Promise<CityWe
 }
 
 export async function fetchAllCitiesWeather(): Promise<CityWeatherForecast[]> {
-  const promises = CITIES.map((city) => fetchCityTomorrowWeather(city));
-  return Promise.all(promises);
+  const results = await Promise.allSettled(CITIES.map((city) => fetchCityTomorrowWeather(city)));
+  const forecasts: CityWeatherForecast[] = [];
+  const failures: string[] = [];
+
+  results.forEach((result, index) => {
+    if (result.status === "fulfilled") {
+      forecasts.push(result.value);
+      return;
+    }
+
+    const city = CITIES[index];
+    const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+    failures.push(`${city.nameUk}: ${reason}`);
+  });
+
+  if (failures.length > 0) {
+    console.warn(`Weather forecast skipped ${failures.length} city/cities: ${failures.join("; ")}`);
+  }
+
+  if (forecasts.length === 0) {
+    throw new Error(`Failed to fetch weather for all cities: ${failures.join("; ")}`);
+  }
+
+  return forecasts;
 }
 
 export function getWeatherEmoji(code: number): string {

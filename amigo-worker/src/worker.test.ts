@@ -8,6 +8,7 @@ import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./services/storage";
 import { TelegramService } from "./services/telegram";
+import { fetchAllCitiesWeather } from "./services/weather";
 import { checkSubrequestsCapacity, getSubrequestsCount, resetSubrequestsCount, trackedFetch } from "./utils/tracker";
 import worker, { isFeedActive, sortByPublishedTime } from "./index";
 
@@ -250,6 +251,52 @@ describe("feed activation", () => {
     expect(isFeedActive({ active: "false" })).toBe(false);
     expect(isFeedActive({ active: false })).toBe(false);
     expect(isFeedActive({})).toBe(false);
+  });
+});
+
+describe("weather forecast", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("keeps forecasts from successful cities when one city fails", async () => {
+    const weatherResponse = {
+      daily: {
+        time: ["2026-08-08", "2026-08-09", "2026-08-10", "2026-08-11"],
+        weathercode: [0, 0, 0, 1],
+        temperature_2m_max: [20, 21, 22, 23],
+        temperature_2m_min: [10, 11, 12, 13],
+        precipitation_probability_max: [0, 5, 10, 15],
+        windspeed_10m_max: [3.6, 7.2, 10.8, 14.4],
+      },
+    };
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const okWeatherResponse = () => new Response(JSON.stringify(weatherResponse), { status: 200 });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(okWeatherResponse())
+      .mockResolvedValueOnce(new Response("bad gateway", { status: 502, statusText: "Bad Gateway" }))
+      .mockImplementation(async () => okWeatherResponse());
+
+    vi.stubGlobal("fetch", fetchMock);
+    resetSubrequestsCount();
+
+    const forecasts = await fetchAllCitiesWeather();
+
+    expect(forecasts).toHaveLength(8);
+    expect(forecasts.map((forecast) => forecast.city.nameUk)).not.toContain("Кошице");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Кошице: Open-Meteo API failed"));
+  });
+
+  it("fails clearly when every city weather request fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("bad gateway", { status: 502, statusText: "Bad Gateway" }))
+    );
+    resetSubrequestsCount();
+
+    await expect(fetchAllCitiesWeather()).rejects.toThrow("Failed to fetch weather for all cities");
   });
 });
 
