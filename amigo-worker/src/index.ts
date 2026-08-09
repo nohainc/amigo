@@ -248,13 +248,38 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
         currentRecentSent = await storage.getRecentSent(feed.link);
         const previousSnapshotSet = new Set(previousSnapshot);
         const recentSentSet = new Set(currentRecentSent);
-        const newItems = [];
+        const excludedCategories = getExcludedCategories(feed);
+        const newItems: FeedItem[] = [];
+        let excludedItems = 0;
+        let reroutedToUkraineItems = 0;
 
         // Find new items
         for (const item of items) {
-          if (item.link && !previousSnapshotSet.has(item.link) && !recentSentSet.has(item.link)) {
-            newItems.push(item);
+          if (!item.link || previousSnapshotSet.has(item.link) || recentSentSet.has(item.link)) {
+            continue;
           }
+
+          if (isItemExcludedByCategory(item, excludedCategories)) {
+            excludedItems++;
+            continue;
+          }
+
+          if (isItemRoutedToDifferentTopic(item, feed.topic, "ukraine", topicsConfig)) {
+            reroutedToUkraineItems++;
+            continue;
+          }
+
+          newItems.push(item);
+        }
+        if (excludedItems > 0) {
+          console.log(
+            `Skipped ${excludedItems} new items from ${feed.link} because of excluded categories: ${excludedCategories.join(", ")}`
+          );
+        }
+        if (reroutedToUkraineItems > 0) {
+          console.log(
+            `Skipped ${reroutedToUkraineItems} new items from ${feed.link} because they matched the Ukraine topic while the feed topic is "${feed.topic}".`
+          );
         }
         feedStatus.newItems = newItems.length;
 
@@ -413,6 +438,59 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
 
 export function isFeedActive(feed: { active?: unknown }): boolean {
   return feed.active === true || feed.active === "true";
+}
+
+export function getExcludedCategories(feed: { exclude?: unknown }): string[] {
+  const configured = feed.exclude;
+  const categories = Array.isArray(configured) ? configured : configured ? [configured] : [];
+
+  return categories
+    .filter((category): category is string => typeof category === "string")
+    .map((category) => category.trim())
+    .filter(Boolean);
+}
+
+export function isItemExcludedByCategory(item: FeedItem, excludedCategories: string[]): boolean {
+  if (!item.categories?.length || !excludedCategories.length) {
+    return false;
+  }
+
+  const excluded = new Set(excludedCategories.map(normalizeCategory));
+  return item.categories.some((category) => excluded.has(normalizeCategory(category)));
+}
+
+export function isItemRoutedToDifferentTopic(
+  item: FeedItem,
+  feedTopic: unknown,
+  targetTopic: string,
+  topicsConfig: any[]
+): boolean {
+  if (normalizeCategory(String(feedTopic || "")) === normalizeCategory(targetTopic)) {
+    return false;
+  }
+
+  const target = topicsConfig.find((topic) => {
+    const names = [topic.name_en, topic.name_uk].filter((name): name is string => typeof name === "string");
+    return names.some((name) => normalizeCategory(name) === normalizeCategory(targetTopic));
+  });
+
+  if (!target || !item.categories?.length) {
+    return false;
+  }
+
+  const terms = [target.name_en, target.name_uk, ...(Array.isArray(target.tags) ? target.tags : [])]
+    .filter((term): term is string => typeof term === "string")
+    .map(normalizeCategory);
+
+  return item.categories.some((category) => {
+    const normalizedCategory = normalizeCategory(category);
+    const words = normalizedCategory.split(/[\s,]+/);
+    return terms.some((term) => normalizedCategory === term || words.includes(term));
+  });
+}
+
+function normalizeCategory(category: string): string {
+  return category.trim().toLocaleLowerCase();
 }
 
 function getLocalDateParts(timezone: string): { date: string; hour: string } {

@@ -10,7 +10,13 @@ import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./se
 import { TelegramService } from "./services/telegram";
 import { fetchAllCitiesWeather } from "./services/weather";
 import { checkSubrequestsCapacity, getSubrequestsCount, resetSubrequestsCount, trackedFetch } from "./utils/tracker";
-import worker, { isFeedActive, sortByPublishedTime } from "./index";
+import worker, {
+  getExcludedCategories,
+  isFeedActive,
+  isItemExcludedByCategory,
+  isItemRoutedToDifferentTopic,
+  sortByPublishedTime,
+} from "./index";
 
 class MemoryKV implements KVNamespaceMock {
   store = new Map<string, string>();
@@ -251,6 +257,60 @@ describe("feed activation", () => {
     expect(isFeedActive({ active: "false" })).toBe(false);
     expect(isFeedActive({ active: false })).toBe(false);
     expect(isFeedActive({})).toBe(false);
+  });
+});
+
+describe("feed category exclusions", () => {
+  it("normalizes configured exclusion categories", () => {
+    expect(getExcludedCategories({ exclude: ["  Politics ", "Sport"] })).toEqual([
+      "Politics",
+      "Sport",
+    ]);
+    expect(getExcludedCategories({ exclude: "Politics" })).toEqual(["Politics"]);
+    expect(getExcludedCategories({})).toEqual([]);
+  });
+
+  it("excludes an item when any RSS category matches case-insensitively", () => {
+    const item = { title: "Politics", link: "item", categories: ["Політика", "Україна"] };
+
+    expect(isItemExcludedByCategory(item, [" політика "])).toBe(true);
+    expect(isItemExcludedByCategory(item, ["Спорт"])).toBe(false);
+    expect(isItemExcludedByCategory({ ...item, categories: [] }, ["Політика"])).toBe(false);
+  });
+
+  it("skips Ukraine-tagged items from feeds configured for another topic", () => {
+    const topics = [
+      {
+        name_en: "Ukraine",
+        name_uk: "Україна",
+        tags: ["ukraine", "news-ukraine", "war-updates", "ukrajina", "vojna"],
+      },
+    ];
+
+    expect(
+      isItemRoutedToDifferentTopic(
+        { title: "Ukraine", link: "item", categories: ["news-ukraine"] },
+        "news",
+        "ukraine",
+        topics
+      )
+    ).toBe(true);
+    expect(
+      isItemRoutedToDifferentTopic(
+        { title: "Ukraine", link: "item", categories: ["news-ukraine"] },
+        "ukraine",
+        "ukraine",
+        topics
+      )
+    ).toBe(false);
+    expect(
+      isItemRoutedToDifferentTopic(
+        { title: "Slovakia", link: "item", categories: ["slovakia"] },
+        "news",
+        "ukraine",
+        topics
+      )
+    ).toBe(false);
   });
 });
 

@@ -12,7 +12,16 @@ Feeds are configured in `src/feeds.nano` using Nano Markup:
         topic news
         language sk
         active true
+        exclude:
+            Category to skip
 ```
+
+`exclude` is optional. When configured, an item is skipped when one
+of its RSS/Atom categories matches a configured value (case-insensitive).
+
+Items from feeds configured for a topic other than `ukraine` are also skipped
+when their RSS/Atom categories match the Ukraine topic tags. This prevents a
+general feed item from being rerouted to the Ukraine topic.
 
 ## Local Development
 

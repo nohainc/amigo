@@ -6,12 +6,14 @@
         link https://www.ukrinform.ua/rss/block-lastnews
         topic ukraine
         language uk
-        active false
+        active  true
+        exclude:
+            Світ
     ..
         link https://www.eurointegration.com.ua/rss/view_mainnews/
         topic ukraine
         language uk
-        active true
+        active false
 
     # ----------------------------------------------------
     # SLOVAK FEEDS (Official, then Favorite, then Others)
@@ -32,6 +34,8 @@
         topic news
         language sk
         active true
+        exclude:
+            Svet
     ..
         link https://www.teraz.sk/rss/slovensko.rss
         topic news
@@ -43,7 +47,7 @@
         link https://www.aktuality.sk/rss/spravy/
         topic news
         language sk
-        active true
+        active false
 
     # --- Others ---
     ..
@@ -51,11 +55,13 @@
         topic news
         language sk
         active true
+        exclude:
+            Svet
     ..
         link https://www1.pluska.sk/rss.xml
         topic news
         language sk
-        active true
+        active false
     ..
         link https://www.startitup.sk/feed/
         topic news
@@ -65,4 +71,4 @@
         link https://zive.aktuality.sk/rss/najnovsie/
         topic news
         language sk
-        active true
+        active false
