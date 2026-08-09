@@ -101,6 +101,7 @@ export class TelegramService {
       message_thread_id: threadId,
       parse_mode: "HTML",
       text: message,
+      disable_notification: true,
     }, "Telegram send failed");
   }
   /**
@@ -115,6 +116,7 @@ export class TelegramService {
       message_thread_id: threadId,
       parse_mode: "HTML",
       text: text,
+      disable_notification: true,
     }, "Telegram send raw failed");
   }
 
