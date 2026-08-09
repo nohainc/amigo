@@ -89,6 +89,37 @@ export default {
       });
     }
 
+    if (url.pathname === "/cleanup") {
+      try {
+        const report = await cleanupTelegramUpdates(env);
+        return Response.json(report, { status: 200 });
+      } catch (err: any) {
+        return new Response(`Error running cleanup: ${err.message}`, { status: 500 });
+      }
+    }
+
+    if (request.method === "POST") {
+      try {
+        const update: any = await request.json();
+        if (update.message) {
+          const msg = update.message;
+          // Check for join or leave service messages
+          if (msg.new_chat_members || msg.left_chat_member) {
+            const chatId = msg.chat.id;
+            const messageId = msg.message_id;
+            const topicsConfig = parseNano(topicsNano);
+            const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI);
+            await telegram.deleteMessage(chatId, messageId);
+            return new Response("OK - Deleted service message", { status: 200 });
+          }
+        }
+        return new Response("OK - Ignored update", { status: 200 });
+      } catch (err: any) {
+        console.error("Webhook processing error:", err);
+        return new Response(`Error: ${err.message}`, { status: 500 });
+      }
+    }
+
     return new Response("Amigo Telegram Bot Worker is active. Use /run to execute manual feed pull, /weather to send the weather message, or /status to inspect today's status.", { status: 200 });
   },
 };
@@ -114,6 +145,13 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
     sentItems: 0,
     feeds: [],
   };
+
+  // Run cleanup of join/leave messages 24/7 (regardless of working hours)
+  try {
+    await cleanupTelegramUpdates(env);
+  } catch (err) {
+    console.error("Cleanup failed in runBot:", err);
+  }
 
   // Validate active hour constraint (Slovakia Timezone)
   const currentLocalHour = parseInt(localDateParts.hour, 10);
@@ -395,5 +433,58 @@ function getLocalDateParts(timezone: string): { date: string; hour: string } {
   return {
     date: `${year}-${month}-${day}`,
     hour,
+  };
+}
+
+async function cleanupTelegramUpdates(env: Env): Promise<any> {
+  const topicsConfig = parseNano(topicsNano);
+  const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI);
+  
+  const getUpdatesUrl = `https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/getUpdates`;
+  const response = await fetch(getUpdatesUrl);
+  if (!response.ok) {
+    return { error: "Failed to get updates", details: await response.text() };
+  }
+  
+  const data: any = await response.json();
+  if (!data.ok || !Array.isArray(data.result)) {
+    return { error: "Invalid updates format", response: data };
+  }
+  
+  if (data.result.length === 0) {
+    return { message: "No updates found" };
+  }
+  
+  const deleted: any[] = [];
+  let maxUpdateId = 0;
+  for (const update of data.result) {
+    if (update.update_id > maxUpdateId) {
+      maxUpdateId = update.update_id;
+    }
+    
+    if (update.message) {
+      const msg = update.message;
+      if (msg.new_chat_members || msg.left_chat_member) {
+        const chatId = msg.chat.id;
+        const messageId = msg.message_id;
+        try {
+          await telegram.deleteMessage(chatId, messageId);
+          deleted.push({ chatId, messageId, status: "deleted" });
+        } catch (err: any) {
+          deleted.push({ chatId, messageId, status: "failed", error: err.message });
+        }
+      }
+    }
+  }
+  
+  if (maxUpdateId > 0) {
+    await fetch(`${getUpdatesUrl}?offset=${maxUpdateId + 1}&limit=1`);
+  }
+  
+  return {
+    totalUpdates: data.result.length,
+    deletedCount: deleted.length,
+    deletedDetails: deleted,
+    maxUpdateId,
   };
 }

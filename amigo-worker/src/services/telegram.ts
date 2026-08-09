@@ -119,6 +119,16 @@ export class TelegramService {
       disable_notification: true,
     }, "Telegram send raw failed");
   }
+  /**
+   * Deletes a message from a chat.
+   */
+  async deleteMessage(chatId: string | number, messageId: number): Promise<void> {
+    const url = `https://api.telegram.org/bot${this.token}/deleteMessage`;
+    await this.sendMessageWithRetry(url, {
+      chat_id: chatId,
+      message_id: messageId,
+    }, "Telegram deleteMessage failed");
+  }
 
   private async sendMessageWithRetry(url: string, body: Record<string, unknown>, errorPrefix: string): Promise<void> {
     const maxAttempts = 5;
