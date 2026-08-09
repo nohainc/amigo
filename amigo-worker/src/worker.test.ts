@@ -493,10 +493,10 @@ describe("telegram sender", () => {
     const body = JSON.parse(firstCall[1].body as string);
 
     expect(body.message_thread_id).toBe(1);
-    expect(body.text).toContain("Long Category | News\n\n");
+    expect(body.text).not.toContain("Long Category | News\n\n");
     expect(body.text).toContain("Original title\n\nTranslated summary");
     expect(body.text).toContain('<a href="https://www.example.sk/post">example.sk</a> | <a href="http://translate.google.com/translate?');
-    expect(body.text).toContain("\n07.08.2026 10:30");
+    expect(body.text).toContain("\n07.08.2026 10:30 | Long Category | News");
   });
 
   it("escapes translated content and URL attributes before sending Telegram HTML", async () => {

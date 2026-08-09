@@ -42,6 +42,43 @@
         language sk
         active true
 
+    # --- Events ---
+    ..
+        link https://www.codnes.sk/divadla/feed
+        topic events
+        language sk
+        active true
+    ..
+        link https://www.codnes.sk/kino/feed
+        topic events
+        language sk
+        active true
+    ..
+        link https://www.codnes.sk/koncerty/feed
+        topic events
+        language sk
+        active true
+    ..
+        link https://www.codnes.sk/party/feed
+        topic events
+        language sk
+        active true
+    ..
+        link https://www.codnes.sk/vystavy/feed
+        topic events
+        language sk
+        active true
+    ..
+        link https://www.codnes.sk/sport/feed
+        topic sport
+        language sk
+        active true
+    ..
+        link https://www.codnes.sk/pre-deti/feed
+        topic children
+        language sk
+        active true
+
     # --- Favorite ---
     ..
         link https://www.aktuality.sk/rss/spravy/

@@ -183,16 +183,12 @@ export class TelegramService {
     const isUkrainian = lang === "uk";
     const isWeb = isUkrainian ? false : this.isLikelyWebsite(item.link);
     
-    // 1. Category line
     let message = "";
-    if (item.categories && item.categories.length > 0) {
-      message += `${item.categories.map(c => this.cleanText(c)).join(" | ")}\n\n`;
-    }
 
-    // 2. Title without link
+    // 1. Title without link
     let title = this.cleanText(item.translatedTitle || item.title);
 
-    // 3. Summary (if present)
+    // 2. Summary (if present)
     let summary = "";
     if (item.description) {
       summary = item.translatedDescription
@@ -224,7 +220,7 @@ export class TelegramService {
       message += `\n\n${summary}`;
     }
 
-    // 4. Links line
+    // 3. Links line
     let domain = "";
     try {
       domain = new URL(item.link).hostname.replace(/^www\./, "");
@@ -245,8 +241,10 @@ export class TelegramService {
     message += `\n\n${linksLine}`;
 
     const publishedTime = this.formatPublishedTime(item);
-    if (publishedTime) {
-      message += `\n${publishedTime}`;
+    const categories = item.categories?.map((category) => this.cleanText(category)).filter(Boolean) || [];
+    const metadataLine = [publishedTime, ...categories].filter(Boolean).join(" | ");
+    if (metadataLine) {
+      message += `\n${metadataLine}`;
     }
 
     return message;
