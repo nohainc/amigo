@@ -47,6 +47,7 @@
         active true
         exclude:
             Svet
+            Kultúra
     ..
         link https://www.startitup.sk/feed/
         topic news
