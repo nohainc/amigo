@@ -9,6 +9,11 @@
         active  true
         exclude:
             Світ
+            Діаспора
+            Відбудова
+            Суспільство
+            Економіка
+            Культура
     ..
         link https://www.eurointegration.com.ua/rss/view_mainnews/
         topic ukraine
