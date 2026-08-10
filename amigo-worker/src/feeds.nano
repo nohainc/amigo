@@ -46,14 +46,6 @@
         language sk
         active true
     ..
-        link https://www.pravda.sk/spravy/rss/xml
-        topic news
-        language sk
-        active true
-        exclude:
-            Svet
-            Kultúra
-    ..
         link https://www.startitup.sk/feed/
         topic news
         language sk
