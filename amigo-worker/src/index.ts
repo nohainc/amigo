@@ -52,7 +52,12 @@ export default {
 
     if (url.pathname === "/weather") {
       try {
-        await sendWeatherForecast(env, { force: true, markSent: false });
+        const replaceMessageId = parsePositiveInteger(url.searchParams.get("replaceMessageId") || undefined, 0);
+        await sendWeatherForecast(env, {
+          force: true,
+          markSent: false,
+          replaceMessageId: replaceMessageId || undefined,
+        });
         return new Response("Weather message sent successfully", { status: 200 });
       } catch (err: any) {
         return new Response(`Error sending weather message: ${err.message}`, { status: 500 });
@@ -131,6 +136,7 @@ export default {
 interface SendWeatherForecastOptions {
   force?: boolean;
   markSent?: boolean;
+  replaceMessageId?: number;
 }
 
 async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): Promise<HourlyRunStatus> {
@@ -420,6 +426,7 @@ async function sendWeatherForecast(
   const day = parts.find((p) => p.type === "day")?.value;
   const todayDateStr = `${year}-${month}-${day}`;
   const weatherSentKey = `weather_sent:${todayDateStr}`;
+  const weatherMessageIdKey = "weather_message_id";
 
   if (!options.force) {
     const alreadySentWeather = await env.amigo.get(weatherSentKey);
@@ -436,16 +443,29 @@ async function sendWeatherForecast(
     options.telegram ||
     new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, parseNano(topicsNano), env.AI, timezone);
 
-  console.log(`Sending morning weather forecast for the third day from today...`);
+  const storedMessageId = options.replaceMessageId ? undefined : await env.amigo.get(weatherMessageIdKey);
+  const messageIdToDelete = options.replaceMessageId || parsePositiveInteger(storedMessageId || undefined, 0);
+  if (messageIdToDelete) {
+    try {
+      await telegram.deleteMessage(env.TELEGRAM_CHAT_ID, messageIdToDelete);
+    } catch (error) {
+      console.warn(`Failed to delete previous weather message ${messageIdToDelete}:`, error);
+    }
+  }
+
+  console.log(`Sending three-day weather forecast...`);
   const weatherForecasts = await fetchAllCitiesWeather();
   const weatherMessage = formatMultiCityWeatherMessage(weatherForecasts);
-  await telegram.sendRawMessage("weather", weatherMessage);
+  const sentMessageId = await telegram.sendRawMessage("weather", weatherMessage);
+  if (sentMessageId) {
+    await env.amigo.put(weatherMessageIdKey, String(sentMessageId));
+  }
 
   if (options.markSent !== false) {
     await env.amigo.put(weatherSentKey, "sent");
   }
 
-  console.log("Third-day weather forecast successfully posted.");
+  console.log("Three-day weather forecast successfully posted.");
 }
 
 export function sortByPublishedTime(items: FeedItem[]): FeedItem[] {

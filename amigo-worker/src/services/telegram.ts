@@ -150,17 +150,18 @@ export class TelegramService {
   /**
    * Sends a raw HTML formatted string to the Telegram chat thread.
    */
-  async sendRawMessage(topic: string, text: string): Promise<void> {
+  async sendRawMessage(topic: string, text: string): Promise<number | undefined> {
     const threadId = this.topicThreadMap[topic] || 0;
     const url = `https://api.telegram.org/bot${this.token}/sendMessage`;
 
-    await this.sendMessageWithRetry(url, {
+    const result = await this.sendMessageWithRetry(url, {
       chat_id: this.chatId,
       message_thread_id: threadId,
       parse_mode: "HTML",
       text: text,
       disable_notification: true,
     }, "Telegram send raw failed");
+    return this.extractMessageId(result);
   }
   /**
    * Deletes a message from a chat.
@@ -173,7 +174,7 @@ export class TelegramService {
     }, "Telegram deleteMessage failed");
   }
 
-  private async sendMessageWithRetry(url: string, body: Record<string, unknown>, errorPrefix: string): Promise<void> {
+  private async sendMessageWithRetry(url: string, body: Record<string, unknown>, errorPrefix: string): Promise<any> {
     const maxAttempts = 5;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -186,7 +187,7 @@ export class TelegramService {
       });
 
       if (response.ok) {
-        return;
+        return response.json().catch(() => undefined);
       }
 
       const errorText = await response.text();
@@ -202,6 +203,11 @@ export class TelegramService {
     }
 
     throw new Error(`${errorPrefix}: retry attempts exhausted`);
+  }
+
+  private extractMessageId(response: any): number | undefined {
+    const messageId = response?.result?.message_id;
+    return typeof messageId === "number" ? messageId : undefined;
   }
 
   private getRetryAfterSeconds(status: number, errorText: string): number | null {

@@ -7,22 +7,21 @@ export interface CityConfig {
 }
 
 export const CITIES: CityConfig[] = [
-  // Slovakia
   { nameUk: "Братислава", lat: 48.1482, lon: 17.1067, countryUk: "Словаччина", flag: "🇸🇰" },
   { nameUk: "Кошице", lat: 48.7164, lon: 21.2611, countryUk: "Словаччина", flag: "🇸🇰" },
   { nameUk: "Прешов", lat: 48.9984, lon: 21.2408, countryUk: "Словаччина", flag: "🇸🇰" },
   { nameUk: "Жиліна", lat: 49.2232, lon: 18.7408, countryUk: "Словаччина", flag: "🇸🇰" },
   { nameUk: "Банська Бистриця", lat: 48.7350, lon: 19.1453, countryUk: "Словаччина", flag: "🇸🇰" },
   { nameUk: "Трнава", lat: 48.3775, lon: 17.5883, countryUk: "Словаччина", flag: "🇸🇰" },
-  // Ukraine
-  { nameUk: "Київ", lat: 50.4501, lon: 30.5234, countryUk: "Україна", flag: "🇺🇦" },
-  { nameUk: "Львів", lat: 49.8397, lon: 24.0297, countryUk: "Україна", flag: "🇺🇦" },
-  // Austria
   { nameUk: "Відень", lat: 48.2082, lon: 16.3738, countryUk: "Австрія", flag: "🇦🇹" },
 ];
 
 export interface CityWeatherForecast {
   city: CityConfig;
+  days: DailyWeatherForecast[];
+}
+
+export interface DailyWeatherForecast {
   date: string;
   tempMax: number;
   tempMin: number;
@@ -33,7 +32,7 @@ export interface CityWeatherForecast {
 
 import { trackedFetch } from "../utils/tracker";
 
-export async function fetchCityTomorrowWeather(city: CityConfig): Promise<CityWeatherForecast> {
+export async function fetchCityWeather(city: CityConfig): Promise<CityWeatherForecast> {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&timezone=auto`;
 
   const response = await trackedFetch(url);
@@ -42,24 +41,25 @@ export async function fetchCityTomorrowWeather(city: CityConfig): Promise<CityWe
   }
 
   const data = (await response.json()) as any;
-  if (!data.daily || !data.daily.time || data.daily.time.length < 4) {
+  if (!data.daily || !data.daily.time || data.daily.time.length < 3) {
     throw new Error(`Invalid response structure from Open-Meteo API for ${city.nameUk}`);
   }
 
-  // Index 3 corresponds to the third day from today.
   return {
     city,
-    date: data.daily.time[3],
-    tempMax: data.daily.temperature_2m_max[3],
-    tempMin: data.daily.temperature_2m_min[3],
-    precipProb: data.daily.precipitation_probability_max[3],
-    windSpeedMax: data.daily.windspeed_10m_max[3],
-    weatherCode: data.daily.weathercode[3],
+    days: [0, 1, 2].map((index) => ({
+      date: data.daily.time[index],
+      tempMax: data.daily.temperature_2m_max[index],
+      tempMin: data.daily.temperature_2m_min[index],
+      precipProb: data.daily.precipitation_probability_max[index],
+      windSpeedMax: data.daily.windspeed_10m_max[index],
+      weatherCode: data.daily.weathercode[index],
+    })),
   };
 }
 
 export async function fetchAllCitiesWeather(): Promise<CityWeatherForecast[]> {
-  const results = await Promise.allSettled(CITIES.map((city) => fetchCityTomorrowWeather(city)));
+  const results = await Promise.allSettled(CITIES.map((city) => fetchCityWeather(city)));
   const forecasts: CityWeatherForecast[] = [];
   const failures: string[] = [];
 
@@ -126,41 +126,39 @@ export function formatMultiCityWeatherMessage(forecasts: CityWeatherForecast[]):
   if (forecasts.length === 0) return "";
 
   const ukrainianMonths = [
-    "січня", "лютого", "березня", "квітня", "травня", "червня",
-    "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"
+    "Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень",
+    "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"
   ];
 
-  // Get target date formatted as "Day Month" in Ukrainian
-  const parts = forecasts[0].date.split("-");
-  let dateHeader = forecasts[0].date;
+  const firstDate = forecasts[0].days[0]?.date || "";
+  const parts = firstDate.split("-");
+  let monthHeader = firstDate;
   if (parts.length === 3) {
-    const day = parseInt(parts[2], 10);
     const monthIdx = parseInt(parts[1], 10) - 1;
     if (monthIdx >= 0 && monthIdx < 12) {
-      dateHeader = `${day} ${ukrainianMonths[monthIdx]}`;
+      monthHeader = ukrainianMonths[monthIdx];
     }
   }
 
-  let msg = `📅 <b><u>${dateHeader}</u></b> 🌤️\n\n`;
+  let msg = `🌤️ <b><u>${monthHeader}</u></b>\n\n`;
 
-  // Group by country
-  const groups: Record<string, { flag: string; list: CityWeatherForecast[] }> = {};
-  for (const f of forecasts) {
-    if (!groups[f.city.countryUk]) {
-      groups[f.city.countryUk] = { flag: f.city.flag, list: [] };
+  for (const forecast of forecasts) {
+    msg += `${forecast.city.flag} <b>${forecast.city.nameUk}</b>\n`;
+    for (const day of forecast.days) {
+      const emoji = getWeatherEmoji(day.weatherCode);
+      const windMs = Math.round(day.windSpeedMax / 3.6);
+      msg += `${formatDay(day.date)} - ${emoji} | ${Math.round(day.tempMin)}-${Math.round(day.tempMax)}°C | ${day.precipProb}% | ${windMs} м/с\n`;
     }
-    groups[f.city.countryUk].list.push(f);
+    msg += "\n";
   }
 
-  for (const [, group] of Object.entries(groups)) {
-    for (const f of group.list) {
-      const emoji = getWeatherEmoji(f.weatherCode);
-      const windMs = Math.round(f.windSpeedMax / 3.6);
-      msg += `${f.city.flag} <b>${f.city.nameUk}</b>\n${emoji} | ${Math.round(f.tempMin)}-${Math.round(f.tempMax)}°C | ${f.precipProb}% | ${windMs} м/с\n\n`;
-    }
-  }
-
-  msg += `ℹ️ <i>Формат: стан погоди | мін-макс температура | макс. ймовірність опадів | макс. швидкість вітру</i>\n\n`;
+  msg += `ℹ️ <i>Формат: дата - стан погоди | мін-макс температура | макс. ймовірність опадів | макс. швидкість вітру</i>\n\n`;
   msg += `<i>Джерело даних: Open-Meteo</i>`;
   return msg;
+}
+
+function formatDay(date: string): string {
+  const parts = date.split("-");
+  if (parts.length !== 3) return date;
+  return parts[2].padStart(2, "0");
 }

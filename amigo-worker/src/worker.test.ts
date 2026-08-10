@@ -14,7 +14,7 @@ import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./se
 import { parseTerazImage } from "./services/teraz";
 import { TelegramService } from "./services/telegram";
 import { parseUkrinformImage } from "./services/ukrinform";
-import { fetchAllCitiesWeather } from "./services/weather";
+import { fetchAllCitiesWeather, formatMultiCityWeatherMessage } from "./services/weather";
 import { checkSubrequestsCapacity, getSubrequestsCount, resetSubrequestsCount, trackedFetch } from "./utils/tracker";
 import worker, {
   getExcludedCategories,
@@ -379,9 +379,38 @@ describe("weather forecast", () => {
 
     const forecasts = await fetchAllCitiesWeather();
 
-    expect(forecasts).toHaveLength(8);
+    expect(forecasts).toHaveLength(6);
     expect(forecasts.map((forecast) => forecast.city.nameUk)).not.toContain("Кошице");
+    expect(forecasts.map((forecast) => forecast.city.nameUk)).not.toContain("Київ");
+    expect(forecasts.map((forecast) => forecast.city.nameUk)).not.toContain("Львів");
+    expect(forecasts[0].days).toHaveLength(3);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Кошице: Open-Meteo API failed"));
+  });
+
+  it("formats three forecast days per city with month header and padded day numbers", () => {
+    const message = formatMultiCityWeatherMessage([
+      {
+        city: {
+          nameUk: "Братислава",
+          lat: 48.1482,
+          lon: 17.1067,
+          countryUk: "Словаччина",
+          flag: "🇸🇰",
+        },
+        days: [
+          { date: "2026-08-01", weatherCode: 0, tempMin: 15, tempMax: 29, precipProb: 0, windSpeedMax: 7.2 },
+          { date: "2026-08-02", weatherCode: 1, tempMin: 16, tempMax: 30, precipProb: 5, windSpeedMax: 10.8 },
+          { date: "2026-08-03", weatherCode: 3, tempMin: 17, tempMax: 31, precipProb: 10, windSpeedMax: 14.4 },
+        ],
+      },
+    ]);
+
+    expect(message).toContain("🌤️ <b><u>Серпень</u></b>");
+    expect(message).toContain("🇸🇰 <b>Братислава</b>");
+    expect(message).toContain("01 - ☀️ | 15-29°C | 0% | 2 м/с");
+    expect(message).toContain("02 - 🌤️ | 16-30°C | 5% | 3 м/с");
+    expect(message).toContain("03 - ☁️ | 17-31°C | 10% | 4 м/с");
+    expect(message).toContain("Формат: дата - стан погоди");
   });
 
   it("fails clearly when every city weather request fails", async () => {
