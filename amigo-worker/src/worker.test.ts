@@ -6,7 +6,7 @@ vi.mock("./feeds.nano", () => ({ get default() { return nanoMocks.feeds; } }));
 vi.mock("./topics.nano", () => ({ get default() { return nanoMocks.topics; } }));
 vi.mock("cloudflare:workers", () => ({ WorkflowEntrypoint: class {} }));
 
-import { parseCodnesEventHtml } from "./services/codnes";
+import { isPastCodnesEvent, parseCodnesEventHtml } from "./services/codnes";
 import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./services/storage";
@@ -419,11 +419,7 @@ describe("manual worker runs", () => {
   });
 });
 
-describe("codnes event route", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
+describe("codnes events", () => {
   it("parses Codnes event image, place, start date, and end date from HTML", () => {
     const parsed = parseCodnesEventHtml(`
       <figure class="col-md-3 col-xl-4" itemprop="image" itemscope="" itemtype="http://schema.org/ImageObject">
@@ -450,60 +446,41 @@ describe("codnes event route", () => {
     });
   });
 
-  it("sends the fixed Codnes test event as a photo message", async () => {
-    nanoMocks.topics = `:
-    ..
-        id 15
-        name_en Sport
-        tags:
-            sport`;
+  it("treats Codnes events as old only after their end time or start time", () => {
+    const now = Date.parse("2026-08-10T10:00:00+02:00");
 
-    const eventHtml = `
-      <figure itemprop="image">
-        <img src="https://www.codnes.sk/image.jpg" itemprop="url">
-      </figure>
-      <span class="place"><a itemprop="location">Námestie J. C. Hronského Prievidza</a></span>
-      <time itemprop="startDate" datetime="2026-08-22T09:00:00+02:00">22.8.2026 - 09:00</time>
-      <time itemprop="endDate" datetime="2026-08-22T13:00:00+02:00">22.8.2026 - 13:00</time>`;
-
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const requestUrl = String(input);
-      if (requestUrl === "https://codnes.sk/sport/korzo-beh-2026") {
-        return new Response(eventHtml, { status: 200 });
-      }
-      if (requestUrl.includes("/sendPhoto")) {
-        return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
-      }
-      return new Response("unexpected", { status: 404, statusText: "Not Found" });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    resetSubrequestsCount();
-
-    const response = await worker.fetch(
-      new Request("https://worker.example/test-codnes-event"),
-      {
-        amigo: new MemoryKV() as any,
-        AI: { run: vi.fn(async () => ({ translated_text: "Перекладений опис" })) },
-        TELEGRAM_TOKEN: "token",
-        TELEGRAM_CHAT_ID: "chat-id",
-        BOT_RUN_WORKFLOW: {} as any,
-      },
-      { waitUntil: vi.fn() } as any
-    );
-
-    expect(response.status).toBe(200);
-    const photoCall = fetchMock.mock.calls.find((call) => String(call[0]).includes("/sendPhoto")) as
-      | [RequestInfo | URL, RequestInit]
-      | undefined;
-    expect(photoCall).toBeTruthy();
-    const body = JSON.parse(photoCall?.[1].body as string);
-    expect(body.message_thread_id).toBe(15);
-    expect(body.photo).toBe("https://www.codnes.sk/image.jpg");
-    expect(body.caption).toContain("📍 Námestie J. C. Hronského Prievidza");
-    expect(body.caption).toContain("🗓 22.08.2026 09:00 - 22.08.2026 13:00");
-    expect(body.caption).toContain("Korzo beh 2026");
-    expect(body.caption).toContain("Перекладений опис");
-    expect(body.caption).toContain('<a href="https://codnes.sk/sport/korzo-beh-2026">codnes.sk</a>');
+    expect(
+      isPastCodnesEvent(
+        {
+          title: "Old event",
+          link: "https://codnes.sk/sport/old",
+          eventStartAt: "2026-08-09T08:00:00+02:00",
+          eventEndAt: "2026-08-09T10:00:00+02:00",
+        },
+        now
+      )
+    ).toBe(true);
+    expect(
+      isPastCodnesEvent(
+        {
+          title: "Running event",
+          link: "https://codnes.sk/sport/running",
+          eventStartAt: "2026-08-09T08:00:00+02:00",
+          eventEndAt: "2026-08-10T18:00:00+02:00",
+        },
+        now
+      )
+    ).toBe(false);
+    expect(
+      isPastCodnesEvent(
+        {
+          title: "Future event",
+          link: "https://codnes.sk/sport/future",
+          eventStartAt: "2026-08-11T08:00:00+02:00",
+        },
+        now
+      )
+    ).toBe(false);
   });
 });
 

@@ -2,7 +2,7 @@ import feedsNano from "./feeds.nano";
 import topicsNano from "./topics.nano";
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { parseFeed } from "./services/feed";
-import { enrichCodnesEvent, isCodnesUrl } from "./services/codnes";
+import { enrichCodnesEvents, isCodnesUrl, isPastCodnesEvent } from "./services/codnes";
 import { parseNano } from "./services/nanomarkup";
 import { FeedRunStatus, HourlyRunStatus, StorageService } from "./services/storage";
 import { FeedItem, TelegramService } from "./services/telegram";
@@ -53,16 +53,6 @@ export default {
         return new Response("Weather message sent successfully", { status: 200 });
       } catch (err: any) {
         return new Response(`Error sending weather message: ${err.message}`, { status: 500 });
-      }
-    }
-
-    if (url.pathname === "/test-codnes-event") {
-      try {
-        const topicOverride = url.searchParams.get("topic") || undefined;
-        const result = await sendTestCodnesEvent(env, topicOverride);
-        return Response.json(result, { status: 200 });
-      } catch (err: any) {
-        return new Response(`Error sending Codnes event: ${err.message}`, { status: 500 });
       }
     }
 
@@ -242,17 +232,26 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
 
       try {
         console.log(`Checking feed: ${feed.link}`);
-        const items = await parseFeed(feed.link);
+        const isCodnesFeed = isCodnesUrl(String(feed.link || ""));
+        const parsedItems = await parseFeed(feed.link);
+        const items = isCodnesFeed ? await enrichCodnesEvents(parsedItems) : parsedItems;
         const currentFeedLinks = items.map((item) => item.link).filter(Boolean);
         feedStatus.currentItems = currentFeedLinks.length;
 
         const previousSnapshot = await storage.getFeedSnapshot(feed.link);
+        const pastCodnesLinks = isCodnesFeed
+          ? items.filter((item) => item.link && isPastCodnesEvent(item)).map((item) => item.link)
+          : [];
         const currentFeedSnapshot = currentFeedLinks;
 
         if (previousSnapshot === null) {
-          await storage.saveFeedSnapshot(feed.link, currentFeedSnapshot);
+          await storage.saveFeedSnapshot(feed.link, isCodnesFeed ? pastCodnesLinks : currentFeedSnapshot);
           feedStatus.status = "initialized";
-          console.log(`Initialized snapshot for feed: ${feed.link} with ${currentFeedSnapshot.length} items.`);
+          console.log(
+            `Initialized snapshot for feed: ${feed.link} with ${
+              isCodnesFeed ? pastCodnesLinks.length : currentFeedSnapshot.length
+            } items.`
+          );
           continue;
         }
 
@@ -263,10 +262,16 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
         const newItems: FeedItem[] = [];
         let excludedItems = 0;
         let reroutedToUkraineItems = 0;
+        let pastCodnesItems = 0;
 
         // Find new items
         for (const item of items) {
           if (!item.link || previousSnapshotSet.has(item.link) || recentSentSet.has(item.link)) {
+            continue;
+          }
+
+          if (isCodnesFeed && isPastCodnesEvent(item)) {
+            pastCodnesItems++;
             continue;
           }
 
@@ -291,6 +296,9 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
           console.log(
             `Skipped ${reroutedToUkraineItems} new items from ${feed.link} because they matched the Ukraine topic while the feed topic is "${feed.topic}".`
           );
+        }
+        if (pastCodnesItems > 0) {
+          console.log(`Skipped ${pastCodnesItems} old Codnes events from ${feed.link}.`);
         }
         feedStatus.newItems = newItems.length;
 
@@ -423,43 +431,6 @@ async function sendWeatherForecast(
   }
 
   console.log("Third-day weather forecast successfully posted.");
-}
-
-const TEST_CODNES_EVENT_ITEM: FeedItem = {
-  title: "Korzo beh 2026",
-  link: "https://codnes.sk/sport/korzo-beh-2026",
-  description:
-    "Pridajte sa ku Korzobehu Prievidza 2026! Obujte tenisky, vezmite rodinu, kamarátov či kolegov a užite si deň plný pohybu, skvelej atmosféry a športových zážitkov!",
-  publishedAt: "2026-08-06T08:32:26.000Z",
-  publishedTimestamp: Date.parse("2026-08-06T08:32:26.000Z"),
-  categories: ["codnes.sk - Šport"],
-};
-
-async function sendTestCodnesEvent(env: Env, topicOverride?: string): Promise<any> {
-  if (!env.TELEGRAM_TOKEN || !env.TELEGRAM_CHAT_ID) {
-    throw new Error("Missing TELEGRAM_TOKEN or TELEGRAM_CHAT_ID bindings");
-  }
-
-  const topicsConfig: any[] = parseNano(topicsNano);
-  const timezone = env.TIMEZONE || "Europe/Bratislava";
-  const topic = topicOverride || "sport";
-  const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI, timezone);
-  const enrichedItem = await enrichCodnesEvent(TEST_CODNES_EVENT_ITEM);
-
-  await telegram.sendItem(topic, enrichedItem, "sk");
-
-  return {
-    status: "sent",
-    topic,
-    item: {
-      title: enrichedItem.title,
-      link: enrichedItem.link,
-      imageUrl: enrichedItem.imageUrl,
-      eventPlace: enrichedItem.eventPlace,
-      eventStartAt: enrichedItem.eventStartAt,
-      eventEndAt: enrichedItem.eventEndAt,
-    },
-  };
 }
 
 export function sortByPublishedTime(items: FeedItem[]): FeedItem[] {

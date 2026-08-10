@@ -36,6 +36,28 @@ export async function enrichCodnesEvent(item: FeedItem): Promise<FeedItem> {
   return { ...item, ...details };
 }
 
+export async function enrichCodnesEvents(items: FeedItem[]): Promise<FeedItem[]> {
+  const enrichedItems: FeedItem[] = [];
+
+  for (const item of items) {
+    enrichedItems.push(await enrichCodnesEvent(item));
+  }
+
+  return enrichedItems;
+}
+
+export function isPastCodnesEvent(item: FeedItem, now = Date.now()): boolean {
+  if (!isCodnesUrl(item.link)) {
+    return false;
+  }
+
+  const eventEnd = parseEventTimestamp(item.eventEndAt);
+  const eventStart = parseEventTimestamp(item.eventStartAt);
+  const actualUntil = eventEnd ?? eventStart;
+
+  return actualUntil !== undefined && actualUntil < now;
+}
+
 export function parseCodnesEventHtml(html: string): CodnesEventDetails {
   return {
     imageUrl: extractImageUrl(html),
@@ -52,6 +74,12 @@ function extractImageUrl(html: string): string | undefined {
     matchAttribute(source, /<img\b[^>]*itemprop=["']url["'][^>]*>/i, "src") ||
       matchAttribute(source, /<img\b[^>]*src=["'][^"']+["'][^>]*itemprop=["']url["'][^>]*>/i, "src")
   );
+}
+
+function parseEventTimestamp(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
 function extractPlace(html: string): string | undefined {
