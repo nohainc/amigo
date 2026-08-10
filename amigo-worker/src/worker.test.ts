@@ -9,7 +9,9 @@ vi.mock("cloudflare:workers", () => ({ WorkflowEntrypoint: class {} }));
 import { isPastCodnesEvent, parseCodnesEventHtml } from "./services/codnes";
 import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
+import { parseStartitupImage } from "./services/startitup";
 import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./services/storage";
+import { parseTerazImage } from "./services/teraz";
 import { TelegramService } from "./services/telegram";
 import { parseUkrinformImage } from "./services/ukrinform";
 import { fetchAllCitiesWeather } from "./services/weather";
@@ -101,6 +103,30 @@ describe("feed parsing", () => {
 
     expect(item.publishedAt).toBeUndefined();
     expect(item.publishedTimestamp).toBeUndefined();
+  });
+
+  it("reads RSS item image metadata from chatr:image and enclosure", async () => {
+    const rssXml = `<?xml version="1.0"?>
+      <rss xmlns:chatr="https://example.com/chatr"><channel>
+        <item>
+          <title>STVR post</title>
+          <link>https://spravy.stvr.sk/post</link>
+          <chatr:image src="https://spravy.stvr.sk/thumb.jpg" original="https://spravy.stvr.sk/original.jpg" height="303" width="538" description=""></chatr:image>
+        </item>
+        <item>
+          <title>Enclosure post</title>
+          <link>https://example.com/enclosure-post</link>
+          <enclosure url="https://example.com/enclosure.jpg" length="1000" type="image/jpeg" />
+        </item>
+      </channel></rss>`;
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(rssXml, { status: 200 })));
+    resetSubrequestsCount();
+
+    const items = await parseFeed("https://example.com/rss.xml");
+
+    expect(items[0].imageUrl).toBe("https://spravy.stvr.sk/original.jpg");
+    expect(items[1].imageUrl).toBe("https://example.com/enclosure.jpg");
   });
 
   it("throws a useful error when a feed fetch fails", async () => {
@@ -492,6 +518,32 @@ describe("ukrinform news", () => {
     `);
 
     expect(image).toBe("https://static.ukrinform.com/photos/2026_08/thumb_files/630_360_1786351689-425.jpg");
+  });
+});
+
+describe("teraz news", () => {
+  it("extracts the article image from the Teraz article page", () => {
+    const image = parseTerazImage(`
+      <div class="articleImage aspectRatio"><img src="https://www1.teraz.sk/usercontent/photos/4/c/1/4-4c11405c06649c020830be057095cd85989bcdf2.jpg" title="Hasiči za uplynulý týždeň zasahovali 962-krát, najmä pre požiare" alt=""><div class="articleImageTop-caption"><figcaption><span>Snímka HaZZ.</span> <em>Foto: HaZZ</em><div class="clear"></div></figcaption></div></div>
+    `);
+
+    expect(image).toBe("https://www1.teraz.sk/usercontent/photos/4/c/1/4-4c11405c06649c020830be057095cd85989bcdf2.jpg");
+  });
+});
+
+describe("startitup news", () => {
+  it("extracts the largest featured image from the Startitup article page", () => {
+    const image = parseStartitupImage(`
+      <figure class="article__featured-image">
+        <img width="700" height="395" class="article__featured-image--desktop skip-lazy" srcset="
+          https://www.startitup.sk/wp-content/uploads/2026/08/image-460x260.jpg 460w,
+          https://www.startitup.sk/wp-content/uploads/2026/08/image-700x395.jpg 700w,
+          https://www.startitup.sk/wp-content/uploads/2026/08/image-1200x675.jpg 1200w
+        " sizes="(max-width: 700px) 100vw, 1200px" src="https://www.startitup.sk/wp-content/uploads/2026/08/image.jpg">
+      </figure>
+    `);
+
+    expect(image).toBe("https://www.startitup.sk/wp-content/uploads/2026/08/image-1200x675.jpg");
   });
 });
 

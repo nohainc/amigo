@@ -40,6 +40,7 @@ export async function parseFeed(url: string): Promise<FeedItem[]> {
       }
 
       const published = parsePublishedDate(item.pubDate || item["dc:date"] || item.date);
+      const imageUrl = extractImageUrl(item);
 
       items.push({
         title: typeof item.title === "string" ? item.title : item.title?.["#text"] || "Untitled",
@@ -48,6 +49,7 @@ export async function parseFeed(url: string): Promise<FeedItem[]> {
         categories: categories.filter(Boolean),
         publishedAt: published?.publishedAt,
         publishedTimestamp: published?.publishedTimestamp,
+        imageUrl,
       });
     }
   } 
@@ -91,6 +93,20 @@ export async function parseFeed(url: string): Promise<FeedItem[]> {
   }
 
   return items;
+}
+
+function extractImageUrl(item: any): string | undefined {
+  return (
+    getImageAttribute(item["chatr:image"], "original") ||
+    getImageAttribute(item["chatr:image"], "src") ||
+    getImageAttribute(item.enclosure, "url")
+  );
+}
+
+function getImageAttribute(value: unknown, attribute: string): string | undefined {
+  const source = Array.isArray(value) ? value[0] : value;
+  const attr = (source as any)?.[`@_${attribute}`];
+  return typeof attr === "string" && attr.trim() ? attr.trim() : undefined;
 }
 
 function parsePublishedDate(value: unknown): { publishedAt: string; publishedTimestamp: number } | undefined {

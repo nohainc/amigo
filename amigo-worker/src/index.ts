@@ -4,7 +4,9 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloud
 import { parseFeed } from "./services/feed";
 import { enrichCodnesEvents, isCodnesUrl, isPastCodnesEvent } from "./services/codnes";
 import { parseNano } from "./services/nanomarkup";
+import { enrichStartitupNews, isStartitupUrl } from "./services/startitup";
 import { FeedRunStatus, HourlyRunStatus, StorageService } from "./services/storage";
+import { enrichTerazNews, isTerazUrl } from "./services/teraz";
 import { FeedItem, TelegramService } from "./services/telegram";
 import { enrichUkrinformNews, isUkrinformUrl } from "./services/ukrinform";
 import { fetchAllCitiesWeather, formatMultiCityWeatherMessage } from "./services/weather";
@@ -234,6 +236,8 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
       try {
         console.log(`Checking feed: ${feed.link}`);
         const isCodnesFeed = isCodnesUrl(String(feed.link || ""));
+        const isStartitupFeed = isStartitupUrl(String(feed.link || ""));
+        const isTerazFeed = isTerazUrl(String(feed.link || ""));
         const isUkrinformFeed = isUkrinformUrl(String(feed.link || ""));
         const parsedItems = await parseFeed(feed.link);
         const items = isCodnesFeed ? await enrichCodnesEvents(parsedItems) : parsedItems;
@@ -315,6 +319,12 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
 
         // Batch translate foreign feeds
         let processedItems = sortByPublishedTime(newItems);
+        if (isStartitupFeed) {
+          processedItems = await enrichStartitupNews(processedItems);
+        }
+        if (isTerazFeed) {
+          processedItems = await enrichTerazNews(processedItems);
+        }
         if (isUkrinformFeed) {
           processedItems = await enrichUkrinformNews(processedItems);
         }
