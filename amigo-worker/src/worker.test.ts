@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./feeds.nano", () => ({ default: "" }));
-vi.mock("./topics.nano", () => ({ default: "" }));
+const nanoMocks = vi.hoisted(() => ({ feeds: "", topics: "" }));
+
+vi.mock("./feeds.nano", () => ({ get default() { return nanoMocks.feeds; } }));
+vi.mock("./topics.nano", () => ({ get default() { return nanoMocks.topics; } }));
 vi.mock("cloudflare:workers", () => ({ WorkflowEntrypoint: class {} }));
 
+import { parseCodnesEventHtml } from "./services/codnes";
 import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./services/storage";
@@ -33,6 +36,11 @@ class MemoryKV implements KVNamespaceMock {
     this.store.delete(key);
   }
 }
+
+beforeEach(() => {
+  nanoMocks.feeds = "";
+  nanoMocks.topics = "";
+});
 
 describe("feed parsing", () => {
   afterEach(() => {
@@ -411,6 +419,94 @@ describe("manual worker runs", () => {
   });
 });
 
+describe("codnes event route", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("parses Codnes event image, place, start date, and end date from HTML", () => {
+    const parsed = parseCodnesEventHtml(`
+      <figure class="col-md-3 col-xl-4" itemprop="image" itemscope="" itemtype="http://schema.org/ImageObject">
+        <a href="https://www.codnes.sk/storage/app/uploads/public/696/ca9/842/696ca984204f9143950720.jpg">
+          <img src="https://www.codnes.sk/storage/app/uploads/public/696/ca9/842/696ca984204f9143950720.jpg" alt="Brose Night Run" itemprop="url">
+        </a>
+      </figure>
+      <div class="info">
+        <span class="place">
+          <a href="https://www.codnes.sk/miesto/namestie-j-c-hronskeho" itemprop="location">Námestie J. C. Hronského Prievidza</a>
+        </span>
+        <div class="date">
+          Od <time itemprop="startDate" datetime="2026-09-12T15:00:00+02:00">12.9.2026 - 15:00</time>
+          do <time itemprop="endDate" datetime="2026-09-12T20:00:00+02:00">12.9.2026 - 20:00</time>
+        </div>
+      </div>
+    `);
+
+    expect(parsed).toEqual({
+      imageUrl: "https://www.codnes.sk/storage/app/uploads/public/696/ca9/842/696ca984204f9143950720.jpg",
+      eventPlace: "Námestie J. C. Hronského Prievidza",
+      eventStartAt: "2026-09-12T15:00:00+02:00",
+      eventEndAt: "2026-09-12T20:00:00+02:00",
+    });
+  });
+
+  it("sends the fixed Codnes test event as a photo message", async () => {
+    nanoMocks.topics = `:
+    ..
+        id 15
+        name_en Sport
+        tags:
+            sport`;
+
+    const eventHtml = `
+      <figure itemprop="image">
+        <img src="https://www.codnes.sk/image.jpg" itemprop="url">
+      </figure>
+      <span class="place"><a itemprop="location">Námestie J. C. Hronského Prievidza</a></span>
+      <time itemprop="startDate" datetime="2026-08-22T09:00:00+02:00">22.8.2026 - 09:00</time>
+      <time itemprop="endDate" datetime="2026-08-22T13:00:00+02:00">22.8.2026 - 13:00</time>`;
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const requestUrl = String(input);
+      if (requestUrl === "https://codnes.sk/sport/korzo-beh-2026") {
+        return new Response(eventHtml, { status: 200 });
+      }
+      if (requestUrl.includes("/sendPhoto")) {
+        return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+      }
+      return new Response("unexpected", { status: 404, statusText: "Not Found" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    resetSubrequestsCount();
+
+    const response = await worker.fetch(
+      new Request("https://worker.example/test-codnes-event"),
+      {
+        amigo: new MemoryKV() as any,
+        AI: { run: vi.fn(async () => ({ translated_text: "Перекладений опис" })) },
+        TELEGRAM_TOKEN: "token",
+        TELEGRAM_CHAT_ID: "chat-id",
+        BOT_RUN_WORKFLOW: {} as any,
+      },
+      { waitUntil: vi.fn() } as any
+    );
+
+    expect(response.status).toBe(200);
+    const photoCall = fetchMock.mock.calls.find((call) => String(call[0]).includes("/sendPhoto")) as
+      | [RequestInfo | URL, RequestInit]
+      | undefined;
+    expect(photoCall).toBeTruthy();
+    const body = JSON.parse(photoCall?.[1].body as string);
+    expect(body.message_thread_id).toBe(15);
+    expect(body.photo).toBe("https://www.codnes.sk/image.jpg");
+    expect(body.caption).toContain("📍 Námestie J. C. Hronského Prievidza");
+    expect(body.caption).toContain("🗓 22.08.2026 09:00 - 22.08.2026 13:00");
+    expect(body.caption).toContain("Korzo beh 2026");
+    expect(body.caption).toContain("Перекладений опис");
+    expect(body.caption).toContain('<a href="https://codnes.sk/sport/korzo-beh-2026">codnes.sk</a>');
+  });
+});
+
 describe("subrequest tracker", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -544,6 +640,33 @@ describe("telegram sender", () => {
     const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(firstCall[1].body as string);
     expect(body.message_thread_id).toBe(7);
+  });
+
+  it("falls back to a text message for enriched event posts without an image", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    resetSubrequestsCount();
+
+    const telegram = new TelegramService("token", "chat-id", [{ name_en: "sport", id: "7" }], undefined, "Europe/Bratislava");
+
+    await telegram.sendItem(
+      "sport",
+      {
+        title: "Event title",
+        link: "https://codnes.sk/sport/event",
+        description: "Translated summary",
+        eventPlace: "Event place",
+        eventStartAt: "2026-09-12T15:00:00+02:00",
+      },
+      "uk"
+    );
+
+    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(firstCall[1].body as string);
+    expect(firstCall[0]).toContain("/sendMessage");
+    expect(body.message_thread_id).toBe(7);
+    expect(body.text).toContain("📍 Event place");
+    expect(body.text).toContain("🗓 12.09.2026 15:00");
   });
 
   it("does not retry non-rate-limit Telegram failures", async () => {

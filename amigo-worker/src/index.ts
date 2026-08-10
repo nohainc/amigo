@@ -2,6 +2,7 @@ import feedsNano from "./feeds.nano";
 import topicsNano from "./topics.nano";
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { parseFeed } from "./services/feed";
+import { enrichCodnesEvent, isCodnesUrl } from "./services/codnes";
 import { parseNano } from "./services/nanomarkup";
 import { FeedRunStatus, HourlyRunStatus, StorageService } from "./services/storage";
 import { FeedItem, TelegramService } from "./services/telegram";
@@ -52,6 +53,16 @@ export default {
         return new Response("Weather message sent successfully", { status: 200 });
       } catch (err: any) {
         return new Response(`Error sending weather message: ${err.message}`, { status: 500 });
+      }
+    }
+
+    if (url.pathname === "/test-codnes-event") {
+      try {
+        const topicOverride = url.searchParams.get("topic") || undefined;
+        const result = await sendTestCodnesEvent(env, topicOverride);
+        return Response.json(result, { status: 200 });
+      } catch (err: any) {
+        return new Response(`Error sending Codnes event: ${err.message}`, { status: 500 });
       }
     }
 
@@ -412,6 +423,43 @@ async function sendWeatherForecast(
   }
 
   console.log("Third-day weather forecast successfully posted.");
+}
+
+const TEST_CODNES_EVENT_ITEM: FeedItem = {
+  title: "Korzo beh 2026",
+  link: "https://codnes.sk/sport/korzo-beh-2026",
+  description:
+    "Pridajte sa ku Korzobehu Prievidza 2026! Obujte tenisky, vezmite rodinu, kamarátov či kolegov a užite si deň plný pohybu, skvelej atmosféry a športových zážitkov!",
+  publishedAt: "2026-08-06T08:32:26.000Z",
+  publishedTimestamp: Date.parse("2026-08-06T08:32:26.000Z"),
+  categories: ["codnes.sk - Šport"],
+};
+
+async function sendTestCodnesEvent(env: Env, topicOverride?: string): Promise<any> {
+  if (!env.TELEGRAM_TOKEN || !env.TELEGRAM_CHAT_ID) {
+    throw new Error("Missing TELEGRAM_TOKEN or TELEGRAM_CHAT_ID bindings");
+  }
+
+  const topicsConfig: any[] = parseNano(topicsNano);
+  const timezone = env.TIMEZONE || "Europe/Bratislava";
+  const topic = topicOverride || "sport";
+  const telegram = new TelegramService(env.TELEGRAM_TOKEN, env.TELEGRAM_CHAT_ID, topicsConfig, env.AI, timezone);
+  const enrichedItem = await enrichCodnesEvent(TEST_CODNES_EVENT_ITEM);
+
+  await telegram.sendItem(topic, enrichedItem, "sk");
+
+  return {
+    status: "sent",
+    topic,
+    item: {
+      title: enrichedItem.title,
+      link: enrichedItem.link,
+      imageUrl: enrichedItem.imageUrl,
+      eventPlace: enrichedItem.eventPlace,
+      eventStartAt: enrichedItem.eventStartAt,
+      eventEndAt: enrichedItem.eventEndAt,
+    },
+  };
 }
 
 export function sortByPublishedTime(items: FeedItem[]): FeedItem[] {

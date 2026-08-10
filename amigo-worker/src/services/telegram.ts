@@ -10,6 +10,10 @@ export interface FeedItem {
   publishedTimestamp?: number;
   translatedTitle?: string;
   translatedDescription?: string;
+  imageUrl?: string;
+  eventPlace?: string;
+  eventStartAt?: string;
+  eventEndAt?: string;
 }
 
 interface TelegramErrorResponse {
@@ -91,6 +95,32 @@ export class TelegramService {
           break;
         }
       }
+    }
+
+    if (this.isEventItem(item)) {
+      const caption = await this.formatEventMessage(item, lang);
+      if (item.imageUrl) {
+        const url = `https://api.telegram.org/bot${this.token}/sendPhoto`;
+        await this.sendMessageWithRetry(url, {
+          chat_id: this.chatId,
+          message_thread_id: threadId,
+          parse_mode: "HTML",
+          photo: item.imageUrl,
+          caption,
+          disable_notification: true,
+        }, "Telegram send photo failed");
+        return;
+      }
+
+      const url = `https://api.telegram.org/bot${this.token}/sendMessage`;
+      await this.sendMessageWithRetry(url, {
+        chat_id: this.chatId,
+        message_thread_id: threadId,
+        parse_mode: "HTML",
+        text: caption,
+        disable_notification: true,
+      }, "Telegram send failed");
+      return;
     }
 
     const message = await this.formatMessage(item, lang);
@@ -248,6 +278,94 @@ export class TelegramService {
     }
 
     return message;
+  }
+
+  private async formatEventMessage(item: FeedItem, lang: string): Promise<string> {
+    const parts: string[] = [];
+    const place = item.eventPlace ? this.cleanText(item.eventPlace) : "";
+    const eventTime = this.formatEventTime(item);
+
+    if (place) {
+      parts.push(`📍 ${place}`);
+    }
+    if (eventTime) {
+      parts.push(`🗓 ${eventTime}`);
+    }
+
+    parts.push(this.cleanText(item.title));
+
+    let summary = "";
+    if (item.description) {
+      summary = item.translatedDescription
+        ? this.cleanText(item.translatedDescription)
+        : this.cleanDescription(item.description);
+    }
+
+    if (lang !== "uk" && !item.translatedDescription && summary.trim()) {
+      try {
+        summary = this.cleanText(await this.translateText(summary, lang || "sk"));
+      } catch (err) {
+        console.error("Translation error (event summary):", err);
+      }
+    }
+
+    if (summary.trim()) {
+      parts.push(summary);
+    }
+
+    parts.push(this.formatLinksLine(item, lang));
+    return parts.filter(Boolean).join("\n\n");
+  }
+
+  private formatEventTime(item: FeedItem): string {
+    const start = this.formatEventDateTime(item.eventStartAt);
+    const end = this.formatEventDateTime(item.eventEndAt);
+
+    if (start && end) {
+      return `${start} - ${end}`;
+    }
+    return start || end;
+  }
+
+  private formatEventDateTime(value: string | undefined): string {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: this.timezone,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(date);
+
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value || "";
+    return `${part("day")}.${part("month")}.${part("year")} ${part("hour")}:${part("minute")}`;
+  }
+
+  private formatLinksLine(item: FeedItem, lang: string): string {
+    let domain = "";
+    try {
+      domain = new URL(item.link).hostname.replace(/^www\./, "");
+    } catch {
+      domain = item.link;
+    }
+
+    let linksLine = `<a href="${this.escapeHtmlAttribute(item.link)}">${this.cleanText(domain)}</a>`;
+    if (lang !== "uk" && this.isLikelyWebsite(item.link)) {
+      const translateUrl = `http://translate.google.com/translate?sl=${lang || "sk"}&tl=uk&u=${encodeURIComponent(
+        item.link
+      )}&client=webapp/`;
+      linksLine += ` | <a href="${this.escapeHtmlAttribute(translateUrl)}">Переклад</a>`;
+    }
+    return linksLine;
+  }
+
+  private isEventItem(item: FeedItem): boolean {
+    return Boolean(item.eventPlace || item.eventStartAt || item.eventEndAt || item.imageUrl);
   }
 
   private formatPublishedTime(item: FeedItem): string {
