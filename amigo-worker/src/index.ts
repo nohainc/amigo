@@ -6,6 +6,7 @@ import { enrichCodnesEvents, isCodnesUrl, isPastCodnesEvent } from "./services/c
 import { parseNano } from "./services/nanomarkup";
 import { FeedRunStatus, HourlyRunStatus, StorageService } from "./services/storage";
 import { FeedItem, TelegramService } from "./services/telegram";
+import { enrichUkrinformNews, isUkrinformUrl } from "./services/ukrinform";
 import { fetchAllCitiesWeather, formatMultiCityWeatherMessage } from "./services/weather";
 import { resetSubrequestsCount } from "./utils/tracker";
 
@@ -233,6 +234,7 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
       try {
         console.log(`Checking feed: ${feed.link}`);
         const isCodnesFeed = isCodnesUrl(String(feed.link || ""));
+        const isUkrinformFeed = isUkrinformUrl(String(feed.link || ""));
         const parsedItems = await parseFeed(feed.link);
         const items = isCodnesFeed ? await enrichCodnesEvents(parsedItems) : parsedItems;
         const currentFeedLinks = items.map((item) => item.link).filter(Boolean);
@@ -313,6 +315,9 @@ async function runBot(env: Env, trigger: "scheduled" | "manual" = "scheduled"): 
 
         // Batch translate foreign feeds
         let processedItems = sortByPublishedTime(newItems);
+        if (isUkrinformFeed) {
+          processedItems = await enrichUkrinformNews(processedItems);
+        }
         if (!isUkrainian) {
           processedItems = await telegram.batchTranslate(processedItems, feed.language || "sk");
         }

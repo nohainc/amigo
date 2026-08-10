@@ -124,6 +124,19 @@ export class TelegramService {
     }
 
     const message = await this.formatMessage(item, lang);
+    if (item.imageUrl) {
+      const url = `https://api.telegram.org/bot${this.token}/sendPhoto`;
+      await this.sendMessageWithRetry(url, {
+        chat_id: this.chatId,
+        message_thread_id: threadId,
+        parse_mode: "HTML",
+        photo: item.imageUrl,
+        caption: message,
+        disable_notification: true,
+      }, "Telegram send photo failed");
+      return;
+    }
+
     const url = `https://api.telegram.org/bot${this.token}/sendMessage`;
 
     await this.sendMessageWithRetry(url, {
@@ -365,7 +378,7 @@ export class TelegramService {
   }
 
   private isEventItem(item: FeedItem): boolean {
-    return Boolean(item.eventPlace || item.eventStartAt || item.eventEndAt || item.imageUrl);
+    return Boolean(item.eventPlace || item.eventStartAt || item.eventEndAt);
   }
 
   private formatPublishedTime(item: FeedItem): string {

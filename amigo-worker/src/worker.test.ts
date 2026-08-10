@@ -11,6 +11,7 @@ import { parseFeed } from "./services/feed";
 import { parseNano } from "./services/nanomarkup";
 import { StorageService, type HourlyRunStatus, type KVNamespaceMock } from "./services/storage";
 import { TelegramService } from "./services/telegram";
+import { parseUkrinformImage } from "./services/ukrinform";
 import { fetchAllCitiesWeather } from "./services/weather";
 import { checkSubrequestsCapacity, getSubrequestsCount, resetSubrequestsCount, trackedFetch } from "./utils/tracker";
 import worker, {
@@ -484,6 +485,16 @@ describe("codnes events", () => {
   });
 });
 
+describe("ukrinform news", () => {
+  it("extracts the main news image from the Ukrinform article page", () => {
+    const image = parseUkrinformImage(`
+      <img class="newsImage" src="https://static.ukrinform.com/photos/2026_08/thumb_files/630_360_1786351689-425.jpg" title="ГУР уразило у Криму дві російські пускові установки ЗРК С-400 «Тріумф» та антену керування дронами" alt="ГУР уразило у Криму дві російські пускові установки ЗРК С-400 «Тріумф» та антену керування дронами">
+    `);
+
+    expect(image).toBe("https://static.ukrinform.com/photos/2026_08/thumb_files/630_360_1786351689-425.jpg");
+  });
+});
+
 describe("subrequest tracker", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -570,6 +581,36 @@ describe("telegram sender", () => {
     expect(body.text).toContain("Original title\n\nTranslated summary");
     expect(body.text).toContain('<a href="https://www.example.sk/post">example.sk</a> | <a href="http://translate.google.com/translate?');
     expect(body.text).toContain("\n07.08.2026 10:30 | Long Category | News");
+  });
+
+  it("sends ordinary image feed posts as photo captions without changing message format", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    resetSubrequestsCount();
+
+    const telegram = new TelegramService("token", "chat-id", [{ name_en: "ukraine", id: "20" }], undefined, "Europe/Bratislava");
+
+    await telegram.sendItem(
+      "ukraine",
+      {
+        title: "Українська новина",
+        link: "https://www.ukrinform.ua/rubric-ato/1234567-news.html",
+        description: "Короткий опис",
+        categories: ["Війна"],
+        publishedAt: "2026-08-10T08:30:00.000Z",
+        imageUrl: "https://static.ukrinform.com/photos/image.jpg",
+      },
+      "uk"
+    );
+
+    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(firstCall[1].body as string);
+    expect(firstCall[0]).toContain("/sendPhoto");
+    expect(body.message_thread_id).toBe(20);
+    expect(body.photo).toBe("https://static.ukrinform.com/photos/image.jpg");
+    expect(body.caption).toContain("Українська новина\n\nКороткий опис");
+    expect(body.caption).toContain('<a href="https://www.ukrinform.ua/rubric-ato/1234567-news.html">ukrinform.ua</a>');
+    expect(body.caption).toContain("\n10.08.2026 10:30 | Війна");
   });
 
   it("escapes translated content and URL attributes before sending Telegram HTML", async () => {
