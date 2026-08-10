@@ -31,6 +31,8 @@ export class TelegramService {
   private ai?: any;
   private timezone: string;
   private topicThreadMap: Record<string, number>;
+  private readonly blockedAutoRouteTopics = new Set(["market", "services"]);
+  private readonly blockedAutoRouteThreadIds = new Set<number>();
 
   constructor(token: string, chatId: string, topicsConfig: any[], ai?: any, timezone = "Europe/Bratislava") {
     this.token = token;
@@ -46,7 +48,11 @@ export class TelegramService {
       
       // Map English name
       if (t.name_en) {
-        this.topicThreadMap[t.name_en.toLowerCase()] = id;
+        const name = t.name_en.toLowerCase();
+        this.topicThreadMap[name] = id;
+        if (this.blockedAutoRouteTopics.has(name)) {
+          this.blockedAutoRouteThreadIds.add(id);
+        }
       }
       // Map Ukrainian name
       if (t.name_uk) {
@@ -75,7 +81,7 @@ export class TelegramService {
         
         // Try direct match
         let matchedThreadId = this.topicThreadMap[cleanedCat];
-        if (matchedThreadId && matchedThreadId !== newsThreadId) {
+        if (this.canAutoRouteTo(matchedThreadId, newsThreadId)) {
           console.log(`Routing item "${item.title}" from news to specific topic matching category "${cat}" (thread ID: ${matchedThreadId})`);
           threadId = matchedThreadId;
           break;
@@ -85,7 +91,7 @@ export class TelegramService {
         const words = cleanedCat.split(/[\s,]+/);
         for (const word of words) {
           const wordThreadId = this.topicThreadMap[word];
-          if (wordThreadId && wordThreadId !== newsThreadId) {
+          if (this.canAutoRouteTo(wordThreadId, newsThreadId)) {
             console.log(`Routing item "${item.title}" from news to specific topic matching word "${word}" (thread ID: ${wordThreadId})`);
             threadId = wordThreadId;
             break;
@@ -208,6 +214,10 @@ export class TelegramService {
   private extractMessageId(response: any): number | undefined {
     const messageId = response?.result?.message_id;
     return typeof messageId === "number" ? messageId : undefined;
+  }
+
+  private canAutoRouteTo(threadId: number | undefined, newsThreadId: number | undefined): boolean {
+    return Boolean(threadId && threadId !== newsThreadId && !this.blockedAutoRouteThreadIds.has(threadId));
   }
 
   private getRetryAfterSeconds(status: number, errorText: string): number | null {

@@ -41,11 +41,12 @@ export async function parseFeed(url: string): Promise<FeedItem[]> {
 
       const published = parsePublishedDate(item.pubDate || item["dc:date"] || item.date);
       const imageUrl = extractImageUrl(item);
+      const description = extractDescription(item);
 
       items.push({
         title: typeof item.title === "string" ? item.title : item.title?.["#text"] || "Untitled",
         link: item.link || "",
-        description: item.description || "",
+        description,
         categories: categories.filter(Boolean),
         publishedAt: published?.publishedAt,
         publishedTimestamp: published?.publishedTimestamp,
@@ -93,6 +94,27 @@ export async function parseFeed(url: string): Promise<FeedItem[]> {
   }
 
   return items;
+}
+
+function extractDescription(item: any): string {
+  const excerpt = getTextValue(item["chatr:excerpt"]);
+  if (excerpt) return excerpt;
+
+  return cleanFeedDescription(getTextValue(item.description));
+}
+
+function cleanFeedDescription(value: string): string {
+  return value
+    .replace(/<p>\s*The post[\s\S]*?appeared first on[\s\S]*?<\/p>/gi, "")
+    .replace(/<[^>]*>\s*(Previous article|Next article|Predchádzajúci článok|Nasledujúci článok)\s*<\/[^>]*>/gi, "")
+    .replace(/\b(Previous article|Next article|Predchádzajúci článok|Nasledujúci článok)\b/gi, "")
+    .trim();
+}
+
+function getTextValue(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  return typeof (value as any)["#text"] === "string" ? (value as any)["#text"] : "";
 }
 
 function extractImageUrl(item: any): string | undefined {

@@ -129,6 +129,28 @@ describe("feed parsing", () => {
     expect(items[1].imageUrl).toBe("https://example.com/enclosure.jpg");
   });
 
+  it("prefers STVR excerpt and removes WordPress footer text from descriptions", async () => {
+    const rssXml = `<?xml version="1.0"?>
+      <rss xmlns:chatr="https://example.com/chatr"><channel>
+        <item>
+          <title>STVR post</title>
+          <link>https://spravy.stvr.sk/post</link>
+          <description><![CDATA[<p>Dostať sa na kúpalisko zdarma bolo pred 20 rokmi bežnou praxou.</p>
+          <p>The post <a href="https://spravy.stvr.sk/post">STVR post</a> appeared first on <a href="https://spravy.stvr.sk">Správy STVR</a>.</p>]]></description>
+          <chatr:excerpt><![CDATA[Dostať sa na kúpalisko zdarma bolo pred 20 rokmi bežnou praxou.]]></chatr:excerpt>
+        </item>
+      </channel></rss>`;
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(rssXml, { status: 200 })));
+    resetSubrequestsCount();
+
+    const [item] = await parseFeed("https://example.com/rss.xml");
+
+    expect(item.description).toBe("Dostať sa na kúpalisko zdarma bolo pred 20 rokmi bežnou praxou.");
+    expect(item.description).not.toContain("The post");
+    expect(item.description).not.toContain("appeared first");
+  });
+
   it("throws a useful error when a feed fetch fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("missing", { status: 404, statusText: "Not Found" })));
     resetSubrequestsCount();
@@ -739,6 +761,32 @@ describe("telegram sender", () => {
     const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(firstCall[1].body as string);
     expect(body.message_thread_id).toBe(7);
+  });
+
+  it("does not auto-route news posts to market or services topics", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    resetSubrequestsCount();
+
+    const telegram = new TelegramService("token", "chat-id", [
+      { name_en: "news", id: "1" },
+      { name_en: "market", id: "18", tags: ["buy", "sell"] },
+      { name_en: "services", id: "9", tags: ["business", "medicine"] },
+    ]);
+
+    await telegram.sendItem(
+      "news",
+      {
+        title: "Business item",
+        link: "https://example.com/business",
+        categories: ["business", "market"],
+      },
+      "uk"
+    );
+
+    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(firstCall[1].body as string);
+    expect(body.message_thread_id).toBe(1);
   });
 
   it("falls back to a text message for enriched event posts without an image", async () => {
